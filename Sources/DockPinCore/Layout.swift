@@ -71,9 +71,11 @@ public enum LayoutPlanner {
     /// neighbouring edge (instead of just a corner). After DockPin jumps the pointer across, macOS
     /// brings its own idea of the pointer position along by moving it in a straight line, which can
     /// only pass between displays that touch; through a bare corner it gets stuck there (the pointer
-    /// then "jumps to the top"). The bridge gives that line a way through. It must be wider than the
-    /// biggest single hand move, or a fast flick's line passes beside it (seen in the real captures).
-    public static let defaultBridge = PointerRules.largestHandMove + 20
+    /// then "jumps to the top"). The bridge gives that line a way through. A crossing first lands the pointer
+    /// just across the border (whose line always passes the bridge) and adds the rest of a fast flick once
+    /// macOS has caught up (PointerTracker), so the bridge stays narrow: near its end, the moved display's
+    /// corner can show part of the arrow on the wrong screen, and a narrow bridge keeps that spot small.
+    public static let defaultBridge: CGFloat = 96
 
     public static func plan(for displays: [Display], targetUUID: String, edge: DockEdge, bridge: CGFloat = defaultBridge) -> LayoutPlan? {
         guard displays.contains(where: { $0.uuid == targetUUID }) else { return nil }

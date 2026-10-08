@@ -5,23 +5,32 @@ import Foundation
 /// after DockPin jumped the pointer across a moved border.
 ///
 /// After such a jump, macOS keeps computing real mouse moves from its own (old) idea of the pointer
-/// position for a few tens of milliseconds, then sends a catch-up event that carries the whole jump.
-/// Passing the stale moves on would pull the pointer back across; so until macOS has caught up, the
-/// pointer is moved from where it really is by each event's movement.
+/// position for a few tens of milliseconds, then catches up with an event that carries the whole jump,
+/// moving its position in a straight line that can only pass where displays share an edge. So:
+/// - a crossing lands where that line can reach (just across the border for a fast flick; the rest of the
+///   flick is added once macOS has caught up);
+/// - until then, the stale moves aren't passed on (they would pull the pointer back across); the pointer
+///   follows the hand from where it really is, as far as the catch-up can still reach.
 public struct PointerTracker {
     public enum Action: Equatable {
         /// Leave the event as it is.
         case pass
-        /// Same display: give the event this location.
+        /// Same display: put the pointer here (and give the event this location).
         case move(CGPoint)
         /// Another display: drop the event and put the pointer here.
         case jump(CGPoint)
     }
 
+    struct Pending {
+        var spot: CGPoint           // where the pointer really is
+        var remainder: CGVector     // movement still to add once macOS has caught up
+        var deadline: TimeInterval
+        var retries: Int
+    }
+
     public let rules: PointerRules
     private(set) var previous: CGPoint?
-    /// Where the pointer really is while macOS's own position is still catching up after a jump.
-    private(set) var pending: (spot: CGPoint, deadline: TimeInterval, retries: Int)?
+    private(set) var pending: Pending?
     static let catchUpWindow: TimeInterval = 0.3
 
     public init(rules: PointerRules) {
@@ -36,8 +45,19 @@ public struct PointerTracker {
         }
         previous = fixed
         if rules.onSameDisplay(location, fixed) { return .move(fixed) }
-        pending = (fixed, time + Self.catchUpWindow, 0)
-        return .jump(fixed)
+        return jump(to: fixed, from: location, time: time)
+    }
+
+    private mutating func jump(to target: CGPoint, from base: CGPoint, time: TimeInterval) -> Action {
+        var landing = target
+        var rest = CGVector.zero
+        if !rules.catchUpCanPass(from: base, to: target) {
+            landing = rules.borderPoint(for: target, from: base)
+            rest = CGVector(dx: target.x - landing.x, dy: target.y - landing.y)
+        }
+        pending = Pending(spot: landing, remainder: rest, deadline: time + Self.catchUpWindow, retries: 0)
+        previous = landing
+        return .jump(landing)
     }
 
     private mutating func followUntilCaughtUp(location: CGPoint, delta: CGVector, time: TimeInterval) -> Action {
@@ -48,28 +68,37 @@ public struct PointerTracker {
         if rules.onSameDisplay(location, p.spot), near(location, p.spot, 2) || near(location, expected, 4) {
             pending = nil
             previous = location
-            return .pass
+            guard p.remainder != .zero else { return .pass }
+            // Now add the rest of the flick: a jump within this display, which macOS follows directly.
+            let target = rules.clampedOntoDisplay(CGPoint(x: location.x + p.remainder.dx, y: location.y + p.remainder.dy), near: location)
+            pending = Pending(spot: target, remainder: .zero, deadline: time + Self.catchUpWindow, retries: 0)
+            previous = target
+            return .jump(target)
         }
         let isCatchUp = hypot(delta.dx, delta.dy) > PointerRules.largestHandMove
         if isCatchUp || time > p.deadline {
-            // The catch-up landed elsewhere (stuck at a corner, or short by the movement the old edge swallowed),
-            // or never came: put the pointer where it is meant to be again, so macOS catches up once more.
+            // The catch-up landed elsewhere, or never came: put the pointer back where it belongs, so macOS
+            // catches up once more.
             guard p.retries < 3 else { pending = nil; previous = location; return .pass }
             p.retries += 1
             p.deadline = time + Self.catchUpWindow
             pending = p
             return .jump(p.spot)
         }
-        // Still stale: move the pointer by this event's movement from where it really is.
+        // A stale move: follow the hand from where the pointer really is.
         let natural = rules.clampedOntoDisplay(expected, near: p.spot)
         let next = rules.correction(from: p.spot, to: natural, delta: delta) ?? natural
-        previous = next
-        if rules.onSameDisplay(next, p.spot) {
-            p.spot = next
-            pending = p
-            return .move(next)
+        if !rules.onSameDisplay(next, p.spot) {
+            return jump(to: next, from: location, time: time)  // crossed again (e.g. straight back)
         }
-        pending = (next, time + Self.catchUpWindow, 0)
-        return .jump(next)
+        if rules.catchUpCanPass(from: location, to: next) {
+            p.spot = next
+            previous = next
+        } else {
+            p.remainder.dx += delta.dx  // beyond what the catch-up can reach: add it once caught up
+            p.remainder.dy += delta.dy
+        }
+        pending = p
+        return .move(p.spot)
     }
 }

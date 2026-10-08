@@ -8,8 +8,6 @@ public struct PointerRules {
     let plan: LayoutPlan
     let offsets: [String: CGVector]
     let guarded: [Display]
-    /// The pointer's arrow is drawn right of and below its tip, up to this many points.
-    let cursorSize: CGFloat
 
     public static let largestHandMove: CGFloat = 300
 
@@ -21,16 +19,51 @@ public struct PointerRules {
         return clamp(p, into: d.frame)
     }
 
+    /// Whether macOS's catch-up after putting the pointer at `b` can get there from its own old position `a`.
+    /// It moves in a straight line that may only pass between displays where they share an edge (a bridge);
+    /// through anything else it stops at the edge (the pointer then "jumps to the top").
+    public func catchUpCanPass(from a: CGPoint, to b: CGPoint) -> Bool {
+        guard let da = display(near: a)?.frame, let db = display(near: b)?.frame else { return false }
+        if da == db { return true }
+        // The shared edge: horizontal (one above the other) or vertical (side by side), with its range.
+        let crossing: (along: CGFloat, range: ClosedRange<CGFloat>)?
+        if da.maxY == db.minY || da.minY == db.maxY {
+            let y = da.maxY == db.minY ? da.maxY : da.minY
+            let t = (y - a.y) / (b.y - a.y)
+            crossing = (a.x + (b.x - a.x) * t, max(da.minX, db.minX)...min(da.maxX, db.maxX))
+        } else if da.maxX == db.minX || da.minX == db.maxX {
+            let x = da.maxX == db.minX ? da.maxX : da.minX
+            let t = (x - a.x) / (b.x - a.x)
+            crossing = (a.y + (b.y - a.y) * t, max(da.minY, db.minY)...min(da.maxY, db.maxY))
+        } else {
+            crossing = nil
+        }
+        guard let crossing, crossing.range.upperBound - crossing.range.lowerBound >= 1 else { return false }
+        return crossing.range.contains(crossing.along)
+    }
+
+    /// For a crossing that lands at `target`, the spot on the same display right across the real border it
+    /// came over from `start` (same height for a side border): the nearest landing macOS's catch-up can reach.
+    public func borderPoint(for target: CGPoint, from start: CGPoint) -> CGPoint {
+        guard let to = display(near: target), let from = display(near: start),
+              let t = plan.real.first(where: { $0.uuid == to.uuid })?.frame,
+              let f = plan.real.first(where: { $0.uuid == from.uuid })?.frame else { return target }
+        let off = offset(to)
+        var p = CGPoint(x: target.x - off.dx, y: target.y - off.dy)
+        if t.maxX <= f.minX { p.x = t.maxX - 1 } else if t.minX >= f.maxX { p.x = t.minX }
+        else if t.maxY <= f.minY { p.y = t.maxY - 1 } else if t.minY >= f.maxY { p.y = t.minY }
+        return CGPoint(x: p.x + off.dx, y: p.y + off.dy)
+    }
+
     /// True when both points are on the same display (of the pinned layout).
     public func onSameDisplay(_ a: CGPoint, _ b: CGPoint) -> Bool {
         display(near: a) == display(near: b)
     }
 
-    public init(plan: LayoutPlan, cursorSize: CGFloat = 32) {
+    public init(plan: LayoutPlan) {
         self.plan = plan
         self.offsets = plan.offsetByUUID
         self.guarded = LayoutPlanner.freeEdgeDisplays(in: plan.pinned, edge: plan.edge).filter { $0.uuid != plan.targetUUID }
-        self.cursorSize = cursorSize
     }
 
     /// Where the pointer should be instead of `current`, or nil when macOS already put it right.
@@ -47,7 +80,7 @@ public struct PointerRules {
         if hypot(replayed.x - current.x, replayed.y - current.y) < 2, display(near: replayed) == display(near: current) {
             replayed = current
         }
-        let kept = keepArrowOffMovedNeighbours(keepOffDockEdges(replayed), delta: delta)
+        let kept = keepOffDockEdges(replayed)
         return hypot(kept.x - current.x, kept.y - current.y) >= 0.5 ? kept : nil
     }
 
@@ -87,41 +120,17 @@ public struct PointerRules {
         return clamp(guess, into: d.frame)
     }
 
-    /// macOS draws the arrow on every display it overlaps. Where a moved display only touches this one in
-    /// the pinned layout (the corner left behind by the slide), that would show part of the arrow on a
-    /// screen that isn't next to it in reality, so keep the arrow clear of it.
-    private func keepArrowOffMovedNeighbours(_ p: CGPoint, delta: CGVector) -> CGPoint {
-        guard let here = display(near: p) else { return p }
-        for other in plan.pinned where other != here && offset(other) != offset(here) {
-            let arrow = CGRect(x: p.x, y: p.y, width: cursorSize, height: cursorSize)
-            guard LayoutPlanner.overlapsInside(arrow, other.frame) else { continue }
-            // Heading for the edge: cross now, at the same height, wherever the real border leads.
-            if let across = crossEarly(p, on: here, delta: delta) { return across }
-            // Otherwise step out of the way, without pushing against the movement.
-            let pushLeft = arrow.maxX - other.frame.minX, pushUp = arrow.maxY - other.frame.minY
-            let left = CGPoint(x: p.x - pushLeft, y: p.y), up = CGPoint(x: p.x, y: p.y - pushUp)
-            if delta.dx > 0 && delta.dy <= 0 { return up }
-            if delta.dy > 0 && delta.dx <= 0 { return left }
-            return pushLeft <= pushUp ? left : up
-        }
-        return p
-    }
-
-    /// The spot just across the edge the move heads for (its main direction), if a display is there in reality.
-    private func crossEarly(_ p: CGPoint, on here: Display, delta: CGVector) -> CGPoint? {
-        let off = offset(here)
-        let realFrame = here.frame.offsetBy(dx: -off.dx, dy: -off.dy)
-        var real = CGPoint(x: p.x - off.dx, y: p.y - off.dy)
-        if abs(delta.dx) >= abs(delta.dy) && delta.dx != 0 {
-            real.x = delta.dx > 0 ? realFrame.maxX : realFrame.minX - 1
-        } else if delta.dy != 0 {
-            real.y = delta.dy > 0 ? realFrame.maxY : realFrame.minY - 1
-        } else {
-            return nil
-        }
-        guard let landing = plan.real.first(where: { $0.uuid != here.uuid && $0.frame.contains(real) }) else { return nil }
-        let o = offset(landing)
-        return CGPoint(x: real.x + o.dx, y: real.y + o.dy)
+    /// Where a move ending at `p` (real arrangement) lands when it starts on `from`: on `from` itself, or on a
+    /// display that shares a stretch of edge with it right where the move leaves it. Like macOS, never
+    /// through a point where two displays only meet at their corners.
+    private func realDisplay(at p: CGPoint, leaving from: Display) -> Display? {
+        guard let a = plan.real.first(where: { $0.uuid == from.uuid })?.frame else { return nil }
+        if a.contains(p) { return plan.real.first { $0.uuid == from.uuid } }
+        guard let b = plan.real.first(where: { $0.uuid != from.uuid && $0.frame.contains(p) }) else { return nil }
+        let f = b.frame
+        if f.maxX == a.minX || f.minX == a.maxX { return p.y >= max(a.minY, f.minY) && p.y < min(a.maxY, f.maxY) ? b : nil }
+        if f.maxY == a.minY || f.minY == a.maxY { return p.x >= max(a.minX, f.minX) && p.x < min(a.maxX, f.maxX) ? b : nil }
+        return nil
     }
 
     private func replayInRealArrangement(from previous: CGPoint, to current: CGPoint, delta: CGVector) -> CGPoint? {
@@ -139,7 +148,7 @@ public struct PointerRules {
         // stopped by the edge (the pointer slides along it), else stopped at the edge.
         let attempts = [real, CGPoint(x: real.x, y: clamp(real, into: fromReal).y), CGPoint(x: clamp(real, into: fromReal).x, y: real.y)]
         for p in attempts {
-            if let landing = plan.real.first(where: { $0.frame.contains(p) }) {
+            if let landing = realDisplay(at: p, leaving: from) {
                 let off = offset(landing)
                 return CGPoint(x: p.x + off.dx, y: p.y + off.dy)
             }

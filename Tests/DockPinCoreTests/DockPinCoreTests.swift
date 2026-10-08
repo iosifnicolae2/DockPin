@@ -57,17 +57,17 @@ final class LayoutPlannerTests: XCTestCase {
     }
 
     func testTheBridgeLetsMacOSFollowAJumpAcrossInAStraightLine() throws {
-        // Left Dock: the LG shares 320 pt of the Odyssey's top edge instead of a bare corner,
+        // Left Dock: the LG shares 96 pt of the Odyssey's top edge instead of a bare corner,
         // and still leaves the Odyssey's left edge free.
         let left = try XCTUnwrap(LayoutPlanner.plan(for: desk, targetUUID: "O", edge: .left))
-        XCTAssertEqual(origins(left)["L"], CGPoint(x: -1600, y: -1080))
+        XCTAssertEqual(origins(left)["L"], CGPoint(x: -1824, y: -1080))
         XCTAssertTrue(LayoutPlanner.freeEdgeDisplays(in: left.pinned, edge: .left).contains { $0.uuid == "O" })
-        // Bottom Dock without the PHL: the laptop shares 320 pt of the Odyssey's right edge.
+        // Bottom Dock without the PHL: the laptop shares 96 pt of the Odyssey's right edge.
         let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
         let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
         let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
         let bottom = try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .bottom))
-        XCTAssertEqual(origins(bottom)["B"], CGPoint(x: 1920, y: 760))
+        XCTAssertEqual(origins(bottom)["B"], CGPoint(x: 1920, y: 984))
         XCTAssertTrue(LayoutPlanner.freeEdgeDisplays(in: bottom.pinned, edge: .bottom).contains { $0.uuid == "O" })
     }
 
@@ -101,6 +101,105 @@ final class LayoutPlannerTests: XCTestCase {
     }
 }
 
+/// Every edge of every display must behave as in the user's real arrangement (System Settings > Displays):
+/// a move crosses only where two displays share a stretch of edge, never through a bare corner, and
+/// otherwise stops at the edge (sliding along it). Checked for every Dock position, with and without the
+/// bridge, on the desk with and without the PHL, by simulating macOS in the pinned layout plus DockPin.
+final class EdgeAuditTests: XCTestCase {
+    struct Side { let name: String; let point: (CGRect, CGFloat) -> CGPoint; let out: CGVector; let along: CGVector }
+    let sides = [
+        Side(name: "left", point: { r, t in CGPoint(x: r.minX + 1, y: r.minY + t * r.height) }, out: CGVector(dx: -3, dy: 0), along: CGVector(dx: 0, dy: 1)),
+        Side(name: "right", point: { r, t in CGPoint(x: r.maxX - 1.5, y: r.minY + t * r.height) }, out: CGVector(dx: 3, dy: 0), along: CGVector(dx: 0, dy: 1)),
+        Side(name: "top", point: { r, t in CGPoint(x: r.minX + t * r.width, y: r.minY + 1) }, out: CGVector(dx: 0, dy: -3), along: CGVector(dx: 1, dy: 0)),
+        Side(name: "bottom", point: { r, t in CGPoint(x: r.minX + t * r.width, y: r.maxY - 1.5) }, out: CGVector(dx: 0, dy: 3), along: CGVector(dx: 1, dy: 0)),
+    ]
+
+    /// Where a move from `s` (on `from`) by `d` ends, given `displays`: crossing only through a shared stretch of edge.
+    static func land(_ s: CGPoint, _ d: CGVector, on from: CGRect, among displays: [CGRect]) -> (CGRect, CGPoint) {
+        func entered(_ p: CGPoint) -> CGRect? {
+            if from.contains(p) { return from }
+            guard let b = displays.first(where: { $0 != from && $0.contains(p) }) else { return nil }
+            if b.maxX == from.minX || b.minX == from.maxX { return p.y >= max(from.minY, b.minY) && p.y < min(from.maxY, b.maxY) ? b : nil }
+            if b.maxY == from.minY || b.minY == from.maxY { return p.x >= max(from.minX, b.minX) && p.x < min(from.maxX, b.maxX) ? b : nil }
+            return nil
+        }
+        let t = CGPoint(x: s.x + d.dx, y: s.y + d.dy)
+        let clamped = CGPoint(x: min(max(t.x, from.minX), from.maxX - 1), y: min(max(t.y, from.minY), from.maxY - 1))
+        for p in [t, CGPoint(x: t.x, y: clamped.y), CGPoint(x: clamped.x, y: t.y)] {
+            if let r = entered(p) { return (r, p) }
+        }
+        return (from, clamped)
+    }
+
+    func audit(_ displays: [Display], edge: DockEdge, bridge: CGFloat, file: StaticString = #filePath, line: UInt = #line) throws {
+        let plan = try XCTUnwrap(LayoutPlanner.plan(for: displays, targetUUID: "O", edge: edge, bridge: bridge))
+        let rules = PointerRules(plan: plan)
+        let real = Dictionary(uniqueKeysWithValues: plan.real.map { ($0.uuid, $0.frame) })
+        let pinned = Dictionary(uniqueKeysWithValues: plan.pinned.map { ($0.uuid, $0.frame) })
+        let off = { (u: String) in CGVector(dx: pinned[u]!.minX - real[u]!.minX, dy: pinned[u]!.minY - real[u]!.minY) }
+        var checked = 0
+        for d in plan.real {
+            for side in sides {
+                for i in 0...36 {
+                    let length = side.along.dx != 0 ? d.frame.width : d.frame.height
+                    let t = (2 + CGFloat(i) / 36 * (length - 4)) / length  // the whole edge, corners included
+                    let s = side.point(d.frame, t)
+                    let sp = CGPoint(x: s.x + off(d.uuid).dx, y: s.y + off(d.uuid).dy)
+                    for wobble: CGFloat in [0, 1, -1] {
+                        let move = CGVector(dx: side.out.dx + side.along.dx * wobble, dy: side.out.dy + side.along.dy * wobble)
+                        let (expectedFrame, expected) = Self.land(s, move, on: d.frame, among: plan.real.map(\.frame))
+                        let (_, native) = Self.land(sp, move, on: pinned[d.uuid]!, among: plan.pinned.map(\.frame))
+                        let fixed = rules.correction(from: sp, to: native, delta: move) ?? native
+                        guard let landed = plan.pinned.first(where: { $0.frame.contains(fixed) }) else {
+                            XCTFail("\(edge) bridge \(bridge): \(d.name) \(side.name) at \(s): pointer left every display (\(fixed))", file: file, line: line)
+                            continue
+                        }
+                        let finalReal = CGPoint(x: fixed.x - off(landed.uuid).dx, y: fixed.y - off(landed.uuid).dy)
+                        let onScreen = real[landed.uuid] == expectedFrame
+                        let spot = hypot(finalReal.x - expected.x, finalReal.y - expected.y) <= 1.5
+                        if !(onScreen && spot) {
+                            XCTFail("\(edge) bridge \(bridge): \(d.name) \(side.name) at \(s) moving \(move): ended on \(landed.name) at \(finalReal) (real), expected \(expected)", file: file, line: line)
+                        }
+                        checked += 1
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(checked, 0, file: file, line: line)
+    }
+
+    func testEveryEdgeOfTheFullDeskBehavesAsInTheRealArrangement() throws {
+        for edge in DockEdge.allCases {
+            for bridge in [0, LayoutPlanner.defaultBridge] { try audit(desk, edge: edge, bridge: bridge) }
+        }
+    }
+
+    func testEveryEdgeWithThePHLUnpluggedBehavesAsInTheRealArrangement() throws {
+        // Today's desk: in reality the LG's bottom-right corner touches the laptop's top-left corner, which
+        // must not let the pointer from the laptop over to the LG (the user's report).
+        let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
+        let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
+        for edge in DockEdge.allCases {
+            for bridge in [0, LayoutPlanner.defaultBridge] { try audit([o, b, l], edge: edge, bridge: bridge) }
+        }
+    }
+
+    func testMovingLeftAlongTheLaptopsTopRowStaysOnTheLaptop() throws {
+        // The reported case exactly: a tiny upward wobble at the laptop's top-left must not cross to the LG.
+        let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
+        let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
+        let rules = PointerRules(plan: try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .left)))
+        let lg = CGRect(x: -1824, y: -1080, width: 1920, height: 1080)  // the LG in the pinned layout
+        let wobbly = rules.correction(from: CGPoint(x: 1, y: 1080.4), to: CGPoint(x: 1, y: 1080), delta: CGVector(dx: -2, dy: -1))
+        XCTAssertFalse(lg.contains(wobbly ?? .zero), "never onto the LG through the corner: \(String(describing: wobbly))")
+        XCTAssertEqual(wobbly, CGPoint(x: 0, y: 1079.4), "the upward part slides onto the Odyssey above, as in reality")
+        let straight = rules.correction(from: CGPoint(x: 1, y: 1080.4), to: CGPoint(x: 0, y: 1080.4), delta: CGVector(dx: -2, dy: 0))
+        XCTAssertEqual(straight, CGPoint(x: 1, y: 1080.4), "straight left: stays at the laptop's edge (1 pt off it, so the Dock isn't pulled there)")
+    }
+}
+
 /// Events from the user's real-mouse capture (~/Library/Logs/DockPin/moves.log), on today's three displays.
 final class RealCaptureTests: XCTestCase {
     var rules: PointerRules!
@@ -128,6 +227,23 @@ final class RealCaptureTests: XCTestCase {
     func testTheCatchUpEventAfterAWarpIsNotReplayedOntoAnotherScreen() {
         XCTAssertNil(rules.correction(from: CGPoint(x: -0.02, y: -1073.55), to: CGPoint(x: 0.23, y: 6.23), delta: CGVector(dx: 0, dy: 1080)))
         XCTAssertNil(rules.correction(from: CGPoint(x: 0, y: 1079.46), to: CGPoint(x: 0.23, y: 1079), delta: CGVector(dx: 30, dy: 1079)))
+    }
+}
+
+final class FastFlickTests: XCTestCase {
+    // Third real capture: a 71 pt flick put the pointer where macOS's catch-up line missed the bridge, so it
+    // never caught up and the pointer lagged. Now the flick lands just across the border first, and the rest
+    // follows once macOS has caught up.
+    func testAFastFlickLandsAtTheBorderThenAddsTheRest() throws {
+        var tracker = PointerTracker(rules: PointerRules(plan: try XCTUnwrap(LayoutPlanner.plan(for: desk, targetUUID: "O", edge: .left))))
+        XCTAssertEqual(tracker.handle(location: CGPoint(x: 5, y: 572), delta: .zero, time: 0), .pass)  // 5 pt from the edge
+        let first = tracker.handle(location: CGPoint(x: 0, y: 572), delta: CGVector(dx: -105, dy: 0), time: 0.001)
+        XCTAssertEqual(first, .jump(CGPoint(x: 95, y: -508)), "just across the real border, same height")
+        // macOS catches up (its event carries the jump) at that spot: now the rest of the flick.
+        let rest = tracker.handle(location: CGPoint(x: 95, y: -508), delta: CGVector(dx: 95, dy: -1080), time: 0.012)
+        XCTAssertEqual(rest, .jump(CGPoint(x: -4, y: -508)), "the whole 105 pt, in the end")
+        XCTAssertEqual(tracker.handle(location: CGPoint(x: -4, y: -508), delta: CGVector(dx: -99, dy: 0), time: 0.02), .pass)
+        XCTAssertEqual(tracker.handle(location: CGPoint(x: -10, y: -508), delta: CGVector(dx: -6, dy: 0), time: 0.03), .pass, "back to normal")
     }
 }
 
@@ -251,21 +367,24 @@ final class PointerRulesTests: XCTestCase {
         XCTAssertEqual(fixed, CGPoint(x: 1, y: 1079))
     }
 
-    // Regression: "the pointer is sometimes drawn half on each display". Near the LG's bottom-right corner
-    // the arrow spilled onto the Odyssey's top-left corner, which in reality is nowhere near.
-    func testHeadingIntoTheCornerZoneCrossesEarlyAtTheSameHeight() throws {
-        // Moving right along the LG's bottom rows: cross as soon as the arrow would spill, same height.
+    // Every position is where the real arrangement puts it, also next to the corner where the moved LG
+    // touches the Odyssey: no pushing the pointer aside (that made real crossings land 30 pt off).
+    func testNoPointerIsPushedAsideNearTheMovedCorner() throws {
         let rules = PointerRules(plan: try plan(.left))
-        XCTAssertEqual(rules.correction(from: CGPoint(x: -14, y: -10), to: CGPoint(x: -10, y: -10), delta: CGVector(dx: 4, dy: 0)),
-                       CGPoint(x: 0, y: 1070))
+        XCTAssertNil(rules.correction(from: CGPoint(x: -14, y: -10), to: CGPoint(x: -10, y: -10), delta: CGVector(dx: 4, dy: 0)))
+        XCTAssertNil(rules.correction(from: CGPoint(x: -10, y: -14), to: CGPoint(x: -10, y: -10), delta: CGVector(dx: 0, dy: 4)))
     }
 
-    func testOtherwiseTheArrowStepsOutOfTheCornerZone() throws {
-        // Moving down into the LG's bottom-right corner: nothing is below the LG in reality, so step left,
-        // out of the movement's way, until the arrow no longer reaches the Odyssey.
-        let rules = PointerRules(plan: try plan(.left))
-        let fixed = try XCTUnwrap(rules.correction(from: CGPoint(x: -10, y: -14), to: CGPoint(x: -10, y: -10), delta: CGVector(dx: 0, dy: 4)))
-        XCTAssertEqual(fixed, CGPoint(x: -32, y: -10))
+    func testMacOSsCatchUpLineOnlyPassesWhereDisplaysShareAnEdge() throws {
+        let rules = PointerRules(plan: try XCTUnwrap(LayoutPlanner.plan(for: desk, targetUUID: "O", edge: .left)))
+        // With the 96 pt bridge the LG (real x -1920..0) sits at x -1824..96 above the Odyssey.
+        XCTAssertTrue(rules.catchUpCanPass(from: CGPoint(x: 0, y: 572), to: CGPoint(x: 66, y: -508)), "an ordinary crossing")
+        XCTAssertFalse(rules.catchUpCanPass(from: CGPoint(x: 0, y: 572), to: CGPoint(x: -104, y: -508)), "a fast flick passes beside the bridge")
+        XCTAssertFalse(rules.catchUpCanPass(from: CGPoint(x: 0, y: 572), to: CGPoint(x: -2, y: -508)),
+                       "without a bridge (corner only) it can't pass either")
+        XCTAssertEqual(rules.borderPoint(for: CGPoint(x: -104, y: -508), from: CGPoint(x: 0, y: 572)), CGPoint(x: 95, y: -508),
+                       "just across the real border, same height")
+        XCTAssertTrue(rules.catchUpCanPass(from: CGPoint(x: 0, y: 572), to: CGPoint(x: 95, y: -508)))
     }
 
     // Regression: "half of the cursor is cut off at the border". Just left of the moved border the arrow

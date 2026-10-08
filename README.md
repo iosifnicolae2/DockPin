@@ -4,7 +4,7 @@
 
 Keeps the macOS Dock on your center monitor.
 
-<a href="https://github.com/iosifnicolae2/DockPin/releases/latest/download/DockPin.zip"><img src="docs/download-button.svg" width="232" alt="Download now"></a>
+<a href="https://github.com/iosifnicolae2/DockPin/releases/latest/download/DockPin.zip"><img src="docs/download-button.svg" width="206" alt="Download now"></a>
 
 ![Three monitors and a laptop running macOS; the Dock sits on the left edge of the center monitor](docs/dockpin-screens.png)
 

@@ -1,110 +1,159 @@
-"""Draws the DockPin app icon (Resources/AppIcon.icns) and the menu-bar template image.
+"""Draws the DockPin app icon (Resources/AppIcon.icns, AppIcon-1024.png) and the menu-bar template image.
+Style: white glossy squircle frame, pastel iridescent "screen" with a small left Dock, and a glossy
+black round badge with a white push-pin overlapping the bottom-right corner.
 Usage: python3 scripts/make-icon.py   (needs Pillow; macOS iconutil)
 """
+import math
 import os
-import shutil
 import subprocess
 import tempfile
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(ROOT, "Resources")
-S = 4  # supersampling
+N = 2048  # drawing size; scaled down at the end for smooth edges
+U = N / 1024  # one unit of the 1024 design grid
 
 
-def lerp(a, b, t):
-    return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
-
-
-def vertical_gradient(size, top, bottom):
-    w, h = size
-    g = Image.new("RGB", (1, h))
-    for y in range(h):
-        g.putpixel((0, y), lerp(top, bottom, y / (h - 1)))
-    return g.resize((w, h))
-
-
-def rounded_mask(size, box, radius):
-    m = Image.new("L", size, 0)
-    ImageDraw.Draw(m).rounded_rectangle(box, radius=radius, fill=255)
+def mask(box, radius):
+    m = Image.new("L", (N, N), 0)
+    ImageDraw.Draw(m).rounded_rectangle([v * U for v in box], radius=radius * U, fill=255)
     return m
 
 
-def monitor(canvas, box, screen_top, screen_bottom, bezel, dock=False, stand=True):
-    d = ImageDraw.Draw(canvas)
-    x0, y0, x1, y1 = box
-    w = x1 - x0
-    if stand:
-        neck_w = w * 0.12
-        d.rounded_rectangle([x0 + w / 2 - neck_w / 2, y1 - 10 * S, x0 + w / 2 + neck_w / 2, y1 + w * 0.13], radius=6 * S, fill=bezel)
-        d.rounded_rectangle([x0 + w * 0.3, y1 + w * 0.12, x1 - w * 0.3, y1 + w * 0.16], radius=8 * S, fill=bezel)
-    d.rounded_rectangle(box, radius=w * 0.06, fill=bezel)
-    inset = w * 0.035
-    screen = [x0 + inset, y0 + inset, x1 - inset, y1 - inset]
-    grad = vertical_gradient((int(screen[2] - screen[0]), int(screen[3] - screen[1])), screen_top, screen_bottom)
-    canvas.paste(grad, (int(screen[0]), int(screen[1])),
-                 rounded_mask(grad.size, [0, 0, grad.size[0] - 1, grad.size[1] - 1], w * 0.035))
-    if dock:
-        sx0, sy0, sx1, sy1 = screen
-        sh = sy1 - sy0
-        bar = [sx0 + sh * 0.06, sy0 + sh * 0.14, sx0 + sh * 0.06 + sh * 0.2, sy1 - sh * 0.14]
-        d.rounded_rectangle(bar, radius=sh * 0.07, fill=(255, 255, 255, 235))
-        colors = [(52, 199, 89), (255, 159, 10), (10, 132, 255), (191, 90, 242)]
-        n = len(colors)
-        bx0, by0, bx1, by1 = bar
-        cell = (by1 - by0) / n
-        r = (bx1 - bx0) * 0.3
-        for i, c in enumerate(colors):
-            cx, cy = (bx0 + bx1) / 2, by0 + cell * (i + 0.5)
-            d.rounded_rectangle([cx - r, cy - r, cx + r, cy + r], radius=r * 0.45, fill=c)
-        return bar
-    return None
+def circle_mask(cx, cy, r, blur=0):
+    m = Image.new("L", (N, N), 0)
+    ImageDraw.Draw(m).ellipse([(cx - r) * U, (cy - r) * U, (cx + r) * U, (cy + r) * U], fill=255)
+    return m.filter(ImageFilter.GaussianBlur(blur * U)) if blur else m
 
 
-def pin(canvas, tip, size):
-    """A red push-pin whose needle ends at `tip`, leaning right."""
-    d = ImageDraw.Draw(canvas)
-    tx, ty = tip
-    head_c = (tx + size * 0.55, ty - size * 0.95)
-    d.line([tip, head_c], fill=(200, 200, 210), width=int(size * 0.09))
-    r = size * 0.36
-    d.ellipse([head_c[0] - r, head_c[1] - r, head_c[0] + r, head_c[1] + r], fill=(235, 55, 65))
-    hr = r * 0.38
-    d.ellipse([head_c[0] - r * 0.45 - hr / 2, head_c[1] - r * 0.5 - hr / 2, head_c[0] - r * 0.45 + hr / 2, head_c[1] - r * 0.5 + hr / 2],
-              fill=(255, 150, 155))
+def solid(color):
+    return Image.new("RGBA", (N, N), color)
 
 
-def app_icon(px=1024):
-    size = (px * S, px * S)
-    img = Image.new("RGBA", size, (0, 0, 0, 0))
-    m = 100 * S * px / 1024
-    tile = [m, m, size[0] - m, size[1] - m]
-    radius = (tile[2] - tile[0]) * 0.225
-    shadow = Image.new("RGBA", size, (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).rounded_rectangle([tile[0], tile[1] + 12 * S, tile[2], tile[3] + 12 * S], radius=radius, fill=(0, 0, 0, 110))
-    img = Image.alpha_composite(img, shadow.filter(ImageFilter.GaussianBlur(14 * S)))
-    bg = vertical_gradient(size, (38, 48, 92), (14, 18, 38)).convert("RGBA")
-    img.paste(bg, (0, 0), rounded_mask(size, tile, radius))
+def vertical(top, bottom, box):
+    """Vertical gradient filling `box` (design units), transparent elsewhere."""
+    x0, y0, x1, y1 = [round(v * U) for v in box]
+    strip = Image.new("RGBA", (1, y1 - y0))
+    for y in range(y1 - y0):
+        t = y / max(1, y1 - y0 - 1)
+        strip.putpixel((0, y), tuple(round(a + (b - a) * t) for a, b in zip(top, bottom)))
+    layer = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    layer.paste(strip.resize((x1 - x0, y1 - y0)), (x0, y0))
+    return layer
 
-    tw = tile[2] - tile[0]
-    cx, cy = size[0] / 2, tile[1] + tw * 0.47
-    side_w, side_h = tw * 0.25, tw * 0.25 * 9 / 16
-    for sign in (-1, 1):
-        sx = cx + sign * tw * 0.335
-        sy = cy + tw * 0.03
-        monitor(img, [sx - side_w / 2, sy - side_h / 2, sx + side_w / 2, sy + side_h / 2],
-                (92, 108, 160), (60, 72, 116), (150, 158, 182))
-    cw, ch = tw * 0.52, tw * 0.52 * 9 / 16
-    bar = monitor(img, [cx - cw / 2, cy - ch / 2, cx + cw / 2, cy + ch / 2],
-                  (96, 170, 255), (54, 92, 220), (232, 236, 245), dock=True)
-    pin(img, ((bar[0] + bar[2]) / 2, bar[1] + (bar[3] - bar[1]) * 0.08), tw * 0.16)
-    return img.resize((px, px), Image.LANCZOS)
+
+def iridescent(box):
+    """Soft pastel wash: cyan top-left, white-violet centre, pink and warm yellow bottom-right."""
+    layer = solid((236, 230, 252, 255))
+    blobs = [((250, 240), 330, (150, 222, 255)), ((300, 420), 260, (190, 236, 255)),
+             ((560, 470), 280, (240, 232, 255)), ((700, 640), 300, (255, 190, 222)),
+             ((480, 760), 220, (250, 214, 240)), ((870, 500), 240, (255, 226, 160)),
+             ((560, 880), 230, (255, 222, 170))]
+    for (cx, cy), r, color in blobs:
+        layer = Image.composite(solid(color + (255,)), layer, circle_mask(cx, cy, r, blur=r * 0.55))
+    out = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    out.paste(layer, (0, 0), mask(box, SCREEN_RADIUS))
+    return out
+
+
+def drop_shadow(m, offset, blur, alpha):
+    shadow = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    shifted = ImageChops.offset(m, 0, round(offset * U)).filter(ImageFilter.GaussianBlur(blur * U))
+    shadow.putalpha(shifted.point(lambda v: v * alpha // 255))
+    return shadow
+
+
+def frame(img):
+    """Full-bleed white body: macOS 26+ masks it to the system squircle and adds the shadow itself
+    (an icon that doesn't fill the canvas gets shrunk onto a grey plate)."""
+    box = [0, 0, 1024, 1024]
+    img = Image.alpha_composite(img, vertical((255, 255, 255, 255), (230, 233, 240, 255), box))
+    return Image.alpha_composite(img, vertical((255, 255, 255, 120), (255, 255, 255, 0), [0, 0, 1024, 380]))
+
+
+SCREEN = [120, 120, 904, 904]
+SCREEN_RADIUS = 150
+
+
+def screen(img):
+    inner = mask(SCREEN, SCREEN_RADIUS)
+    # the frame's lip casts a soft inner shadow onto the screen
+    img = Image.alpha_composite(img, drop_shadow(inner, 5, 8, 80))
+    img = Image.alpha_composite(img, iridescent(SCREEN))
+    ImageDraw.Draw(img).rounded_rectangle([v * U for v in SCREEN], radius=SCREEN_RADIUS * U, outline=(255, 255, 255, 210), width=round(3 * U))
+    return img
+
+
+def dock(img):
+    """A frosted Dock on the screen's left edge, with four app tiles."""
+    bar = [164, 300, 260, 680]
+    layer = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    d.rounded_rectangle([v * U for v in bar], radius=34 * U, fill=(255, 255, 255, 170), outline=(255, 255, 255, 235), width=round(3 * U))
+    colors = [(64, 156, 255), (52, 199, 89), (255, 159, 10), (255, 79, 140)]
+    cx = (bar[0] + bar[2]) / 2
+    for i, c in enumerate(colors):
+        cy = bar[1] + 60 + i * 87
+        d.rounded_rectangle([(cx - 26) * U, (cy - 26) * U, (cx + 26) * U, (cy + 26) * U], radius=12 * U, fill=c + (255,))
+    img = Image.alpha_composite(img, drop_shadow(layer.getchannel("A"), 6, 10, 50))
+    return Image.alpha_composite(img, layer)
+
+
+def push_pin(size_px):
+    """White push-pin, upright, drawn on its own transparent square of `size_px`."""
+    p = Image.new("RGBA", (size_px, size_px), (0, 0, 0, 0))
+    d = ImageDraw.Draw(p)
+    s = size_px / 100
+    white = (255, 255, 255, 255)
+    d.rounded_rectangle([30 * s, 6 * s, 70 * s, 18 * s], radius=5 * s, fill=white)       # top cap
+    d.polygon([(36 * s, 16 * s), (64 * s, 16 * s), (60 * s, 46 * s), (40 * s, 46 * s)], fill=white)  # body
+    d.rounded_rectangle([20 * s, 44 * s, 80 * s, 56 * s], radius=6 * s, fill=white)      # collar
+    d.polygon([(47 * s, 55 * s), (53 * s, 55 * s), (50.5 * s, 94 * s), (49.5 * s, 94 * s)], fill=white)  # needle
+    return p
+
+
+def badge(img):
+    cx, cy, r = 752, 752, 176
+    img = Image.alpha_composite(img, drop_shadow(circle_mask(cx, cy, r), 12, 18, 120))
+    # white rim
+    rim = vertical((255, 255, 255, 255), (222, 226, 234, 255), [cx - r, cy - r, cx + r, cy + r])
+    rim.putalpha(ImageChops.multiply(rim.getchannel("A"), circle_mask(cx, cy, r)))
+    img = Image.alpha_composite(img, rim)
+    # glossy black lens with concentric rings
+    lens_r = r - 18
+    lens = vertical((46, 48, 56, 255), (6, 6, 9, 255), [cx - lens_r, cy - lens_r, cx + lens_r, cy + lens_r])
+    lens.putalpha(ImageChops.multiply(lens.getchannel("A"), circle_mask(cx, cy, lens_r)))
+    img = Image.alpha_composite(img, lens)
+    d = ImageDraw.Draw(img)
+    for rr, color in ((lens_r - 22, (70, 72, 82, 255)), (lens_r - 58, (30, 31, 38, 255))):
+        d.ellipse([(cx - rr) * U, (cy - rr) * U, (cx + rr) * U, (cy + rr) * U], outline=color, width=round(3 * U))
+    # highlight
+    hl = Image.new("L", (N, N), 0)
+    ImageDraw.Draw(hl).ellipse([(cx - 105) * U, (cy - 128) * U, (cx + 30) * U, (cy - 50) * U], fill=120)
+    hl = ImageChops.multiply(hl.filter(ImageFilter.GaussianBlur(16 * U)), circle_mask(cx, cy, lens_r))
+    shine = solid((255, 255, 255, 255))
+    shine.putalpha(hl)
+    img = Image.alpha_composite(img, shine)
+    # the pin, tilted like it was just pushed in
+    pin_px = round(190 * U)
+    pin = push_pin(pin_px).rotate(-32, resample=Image.BICUBIC, expand=False)
+    layer = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    layer.paste(pin, (round((cx - 95 + 6) * U), round((cy - 95 + 4) * U)), pin)
+    return Image.alpha_composite(img, layer)
+
+
+def app_icon():
+    img = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    for step in (frame, screen, dock, badge):
+        img = step(img)
+    return img.resize((1024, 1024), Image.LANCZOS)
 
 
 def menu_bar_template(pt=18, scale=2):
     """Black-on-transparent template: a screen with a Dock on its left edge."""
-    px = pt * scale * S
+    px = pt * scale * 4
     img = Image.new("RGBA", (px, px), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     u = px / 18
@@ -115,7 +164,7 @@ def menu_bar_template(pt=18, scale=2):
 
 
 def main():
-    master = app_icon(1024)
+    master = app_icon()
     with tempfile.TemporaryDirectory() as tmp:
         iconset = os.path.join(tmp, "AppIcon.iconset")
         os.mkdir(iconset)

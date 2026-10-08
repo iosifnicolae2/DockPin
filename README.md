@@ -41,44 +41,61 @@ a left Dock on macOS 27:
 So DockPin, for the current login session only:
 
 1. Makes the center display the main one, and slides whatever touches its Dock edge along that
-   edge until they only meet at a corner. macOS then moves the Dock to the center by itself.
+   edge until it no longer does (it keeps a 96 pt overlap on the next edge, the "bridge", see below).
+   macOS then moves the Dock to the center by itself.
 2. Replays every pointer move in your real arrangement, so crossing a moved border lands exactly
-   where the real border leads, at the same height and speed.
-3. Keeps the pointer one pixel away from the other displays' Dock edges, so the Dock can't be
+   where the real border leads, at the same height, and nothing crosses where your real displays
+   don't share an edge (not even at a corner where they only touch).
+3. Keeps the pointer one point away from the other displays' Dock edges, so the Dock can't be
    pulled away.
 4. Does it again after displays change, wake, or a change of the Dock's position.
 
+The pointer behaves on every edge of every display as in your System Settings arrangement: a test
+checks each edge, corners included, for every Dock position (`EdgeAuditTests`).
+
 ## Why Accessibility
 
-With it, DockPin corrects each pointer move inside the same input event (an event tap), before
-macOS draws the pointer or tells any app, so a moved border feels like any other and dragged
-windows follow. Without it, DockPin falls back to watching moves afterwards, which needs no
-permission but lets the pointer touch the edge for about a millisecond first. Measured on an
-M5 Pro, moving the pointer 200 times a second:
+With it, DockPin handles each pointer move inside the same input event (an event tap), before macOS
+draws the pointer or tells any app, and moves the pointer by posting an event of its own. That keeps
+macOS's own idea of the pointer in step: moving it any other way (a "warp") makes macOS catch up
+later in one big jump across the moved display, which can pull the pointer to the wrong spot and
+which macOS's shake-to-locate takes for a shake (it enlarges the pointer). Dragged windows follow.
 
-| Mode                     | Correction after the move | CPU while moving    | CPU idle |
-|--------------------------|---------------------------|---------------------|----------|
-| Accessibility (event tap) | 0.1 to 0.3 ms, within the event | 74 µs a move (1.5% of a core) | 0.003% |
-| Without (passive monitor) | about 1 ms (p95 3.8 ms), after the event | 99 to 160 µs a move (2 to 3%) | 0%     |
+Without Accessibility, DockPin watches moves afterwards and warps: no permission, but the pointer
+can touch the edge for about a millisecond before it is carried across.
+
+Measured on an M5 Pro:
+
+| Load                                | Pointer delay                  | DockPin CPU      |
+|-------------------------------------|--------------------------------|------------------|
+| Moving around, 200 moves a second   | 0.1 to 0.3 ms, inside the event | 1.5% of one core |
+| Fast crossings, 485 a second, 15 s  | median 0.14 ms, worst under 9 ms, flat | about 10% of one core |
+| Idle                                | -                              | 0.003%           |
 
 ## Trade-offs
 
 - System Settings > Displays shows the moved arrangement while DockPin runs. To change your
   arrangement, quit DockPin, change it, and open DockPin again.
-- The outermost pixel row or column on the other displays' Dock edges can't be reached.
-- Where a moved display meets the center one at a corner, the pointer's arrow would show partly on
-  the wrong screen, so in the last 32 points before that corner the pointer crosses early (same
-  height) or steps aside.
+- The outermost point row or column on the other displays' Dock edges can't be reached.
+- Near the bridge (about 128 by 32 pt at the moved display's corner), part of the pointer's arrow
+  can show on the center display too: macOS draws the pointer itself and a background app can't
+  hide it. Moving the pointer elsewhere instead would put it off its real position.
+- Where a moved border cuts the arrow off, DockPin draws the missing piece on the neighbouring
+  screen, so the arrow looks whole.
 
 ## Develop
 
 ```sh
-swift test                         # layout and pointer rules
-scripts/build-app.sh --install     # build/DockPin.app (ad-hoc signed) into ~/Applications, and start it
-swift scripts/pointer-test.swift   # drives the real pointer: every crossing, and the Dock stays put
-swift scripts/drag-test.swift DIR  # drags a Finder window across the moved border and back
+swift test                           # layout, pointer rules, edge audit, replays of real captures
+scripts/build-app.sh --install       # build/DockPin.app (ad-hoc signed) into ~/Applications, and start it
+swift scripts/pointer-test.swift     # drives the real pointer: every crossing, and the Dock stays put
+swift scripts/drag-test.swift DIR    # drags a Finder window across the moved border and back
+swift scripts/stress-test.swift 15   # sustained fast crossings: pointer delay and DockPin CPU per second
 ```
 
+To capture real moves for a bug report: `defaults write io.bringes.DockPin traceMoves -bool YES`,
+reproduce, `defaults delete io.bringes.DockPin traceMoves`, then
+`python3 scripts/analyze-moves.py ~/Library/Logs/DockPin/moves.log` flags bad crossings.
 Logs: `/usr/bin/log show --last 1h --predicate 'subsystem == "io.bringes.DockPin"'`.
 The icon and the picture above are drawn by `scripts/make-icon.py` and `scripts/make-readme-image.py`.
 

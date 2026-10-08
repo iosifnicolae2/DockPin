@@ -1,6 +1,6 @@
 """Draws the DockPin app icon (Resources/AppIcon.icns, AppIcon-1024.png, AppIcon-preview.png) and the
 menu-bar template image.
-Style: one simple element on a vivid violet square (full-bleed: macOS 26+ masks it to its squircle): the
+Style: one simple element on a soft iridescent pastel square (full-bleed: macOS 26+ masks it to its squircle): the
 Dock, standing up as on a left edge, a frosted glass bar holding four colourful app tiles.
 The menu-bar glyph is the same Dock in one colour.
 Usage: python3 scripts/make-icon.py   (needs Pillow; macOS iconutil)
@@ -25,21 +25,23 @@ TILE_COLORS = [((90, 200, 255), (0, 122, 255)),   # blue
                ((255, 120, 180), (240, 40, 110))]  # pink
 
 
-def gradient(size, top, bottom, diagonal=False):
-    """`size`-square RGBA image fading from `top` to `bottom`, downwards or towards the bottom-right."""
+def gradient(size, top, bottom):
+    """`size`-square RGBA image fading from `top` to `bottom`, downwards."""
     ramp = Image.linear_gradient("L").resize((size, size))
-    if diagonal:
-        ramp = Image.blend(ramp, ramp.rotate(90), 0.5)
     return Image.composite(Image.new("RGBA", (size, size), bottom + (255,)),
                            Image.new("RGBA", (size, size), top + (255,)), ramp)
 
 
 def background():
-    """Vivid violet to indigo, with a soft glow at the top."""
-    img = gradient(N, (150, 95, 255), (70, 40, 225), diagonal=True)
-    glow = Image.new("RGBA", (N, N), (0, 0, 0, 0))
-    ImageDraw.Draw(glow).ellipse([-0.2 * N, -0.55 * N, 1.2 * N, 0.45 * N], fill=(255, 255, 255, 60))
-    img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(N * 0.12)))
+    """Soft iridescent pastel: cyan top-left, lilac-white centre, pink and warm yellow towards the bottom-right."""
+    img = Image.new("RGBA", (N, N), (236, 230, 252, 255))
+    blobs = [((160, 150), 420, (140, 218, 255)), ((520, 470), 300, (244, 238, 255)),
+             ((860, 700), 380, (255, 182, 220)), ((420, 960), 330, (255, 224, 160)),
+             ((960, 180), 260, (214, 200, 255))]
+    for (cx, cy), r, color in blobs:
+        blob = Image.new("L", (N, N), 0)
+        ImageDraw.Draw(blob).ellipse([(cx - r) * U, (cy - r) * U, (cx + r) * U, (cy + r) * U], fill=255)
+        img = Image.composite(Image.new("RGBA", (N, N), color + (255,)), img, blob.filter(ImageFilter.GaussianBlur(r * 0.6 * U)))
     return img
 
 
@@ -60,11 +62,11 @@ def dock(unit, size):
     box = boxer(unit, size)
     layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     bar = shape(size, box(*BAR), 1.65 * unit)
-    shadow = Image.new("RGBA", (size, size), (25, 10, 90, 0))
-    shadow.putalpha(bar.point(lambda v: v * 110 // 255).transform((size, size), Image.AFFINE, (1, 0, 0, 0, 1, -0.45 * unit)))
+    shadow = Image.new("RGBA", (size, size), (60, 40, 110, 0))
+    shadow.putalpha(bar.point(lambda v: v * 120 // 255).transform((size, size), Image.AFFINE, (1, 0, 0, 0, 1, -0.5 * unit)))
     layer.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(0.7 * unit)))
-    glass = gradient(size, (255, 255, 255), (225, 220, 255))
-    glass.putalpha(bar.point(lambda v: v * 92 // 255))  # frosted: the violet shows through
+    glass = gradient(size, (255, 255, 255), (240, 236, 255))
+    glass.putalpha(bar.point(lambda v: v * 150 // 255))  # frosted: the pastel shows through
     layer.alpha_composite(glass)
     rim = Image.new("RGBA", (size, size), WHITE)
     rim.putalpha(ImageChops.subtract(bar, shape(size, box(BAR[0] + 0.14, BAR[1] + 0.14, BAR[2] - 0.14, BAR[3] - 0.14),

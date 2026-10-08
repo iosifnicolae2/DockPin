@@ -2,75 +2,70 @@
 
 # DockPin
 
-A menu-bar app that keeps the macOS Dock on the center display of your monitors, whether the
-Dock sits on the left, bottom or right. Open this to install, use or change it.
+Keeps the macOS Dock on your center monitor.
 
-## Why an app is needed
+![Three monitors in a row and a laptop below; the Dock sits on the center monitor](docs/dockpin-screens.png)
 
-macOS only places the Dock on a display whose whole Dock edge borders no other display.
-In a row like `LG | Odyssey | PHL`, a left Dock can't sit on the Odyssey because its left edge
-touches the LG, even when the Odyssey is the main display. Measured on macOS 27:
+With several monitors, macOS puts the Dock wherever it likes and moves it whenever the pointer
+lingers at another screen's edge. DockPin keeps it on the monitor in the middle, whether the Dock
+sits on the left, the bottom or the right, through sleep, display changes and every login.
+It lives in the menu bar and needs no permissions.
 
-| Arrangement (Odyssey main)                | Where the left Dock goes |
-|-------------------------------------------|--------------------------|
-| LG right next to the Odyssey              | LG                       |
-| LG raised 300 px (edge partly free)       | LG                       |
-| LG above-left, touching only at a corner  | Odyssey                  |
+## Install
 
-The same holds for a bottom Dock and a display below, or a right Dock and a display to the right.
-No setting changes this (turning off "Displays have separate Spaces" pins the Dock to the main
-display, but it still needs a free edge, and it costs separate Spaces and per-display menu bars).
+1. Download `DockPin-<version>.zip` from Releases, unzip it, and move `DockPin.app` to Applications.
+2. Open it. Its icon appears in the menu bar, and it opens at login from then on.
 
-## What DockPin does
+To stop it, choose Quit from its menu: your display arrangement goes back to how it was.
+To pin a different display than the auto-detected center one:
+`defaults write io.bringes.DockPin targetDisplay "<display name>"`.
 
-1. Picks the center display: the one with a display touching it on both sides
-   (or the one named in `defaults write io.bringes.DockPin targetDisplay "<name>"`).
-2. Makes it the main display and slides whatever touches its Dock edge along that edge, the
-   shorter way, until they only meet at a corner. This is for the login session only
-   (`CGConfigureDisplayOrigin` with `.forSession`). The Dock edge is now free, so macOS moves the
-   Dock there by itself.
-3. Replays every pointer move in your real arrangement and maps it back, so crossing a border
-   that was moved lands exactly where the real border leads, and borders that only exist in the
-   moved layout don't let the pointer through.
-4. Keeps the pointer one pixel away from the other displays' free Dock edges, so the Dock can't
-   be pulled away from the center.
-5. Does it again after displays change, wake, a user switch, or a change of the Dock's position.
-   Quitting puts the real arrangement back.
+## How it works
 
-**Seamless crossings need Accessibility.** With it (menu-bar icon > Make Crossings Seamless),
-DockPin corrects each move inside the same input event with an event tap, before anything is
-drawn: no stop at the edge, and dragged windows follow. Without it, DockPin uses a passive monitor
-(no permission) and moves the pointer right after macOS stopped it at the edge, which can show as
-a brief stop.
+macOS only puts the Dock on a display whose whole Dock edge touches no other display. On a
+center monitor that edge always touches a neighbour, so the Dock can't stay there. Measured with
+a left Dock on macOS 27:
+
+| Arrangement (center display is main)       | Where the Dock goes |
+|---------------------------------------------|---------------------|
+| Left monitor right next to the center one   | left monitor        |
+| Left monitor raised 300 px (edge partly free) | left monitor      |
+| Left monitor touching only at a corner      | center monitor      |
+
+So DockPin, for the current login session only:
+
+1. Makes the center display the main one, and slides whatever touches its Dock edge along that
+   edge until they only meet at a corner. macOS then moves the Dock to the center by itself.
+2. Replays every pointer move in your real arrangement, so crossing a moved border lands exactly
+   where the real border leads, at the same height and speed.
+3. Keeps the pointer one pixel away from the other displays' Dock edges, so the Dock can't be
+   pulled away.
+4. Does it again after displays change, wake, or a change of the Dock's position.
 
 ## Trade-offs
 
-- In System Settings > Displays you see the moved arrangement while DockPin runs. To change the
-  arrangement, quit DockPin first, change it, and start DockPin again.
-- The outermost pixel row or column on the other displays' free Dock edges can't be reached.
+- DockPin hears about a pointer move just after macOS makes it. At a moved border the pointer
+  touches the edge for that moment (a few milliseconds) before it is carried across.
+- System Settings > Displays shows the moved arrangement while DockPin runs. To change your
+  arrangement, quit DockPin, change it, and open DockPin again.
+- The outermost pixel row or column on the other displays' Dock edges can't be reached.
 
-## Build, install, test
+## Develop
 
 ```sh
-scripts/build-app.sh             # build/DockPin.app (release, ad-hoc signed)
-scripts/build-app.sh --install   # also copy to ~/Applications and start it
-swift test                       # unit tests for the layout and pointer rules
-swift scripts/pointer-test.swift # moves the real pointer: every crossing + the Dock stays put
+swift test                         # layout and pointer rules
+scripts/build-app.sh --install     # build/DockPin.app (ad-hoc signed) into ~/Applications, and start it
+swift scripts/pointer-test.swift   # drives the real pointer: every crossing, and the Dock stays put
 ```
 
-Open at Login: the DockPin menu-bar icon > Open at Login.
 Logs: `/usr/bin/log show --last 1h --predicate 'subsystem == "io.bringes.DockPin"'`.
+The icon and the picture above are drawn by `scripts/make-icon.py` and `scripts/make-readme-image.py`.
 
 ## Release
 
-1. Bump `CFBundleShortVersionString` in `Resources/Info.plist`, add `docs/releases/v<version>.md`.
+1. Bump `CFBundleShortVersionString` in `Resources/Info.plist` and add `docs/releases/v<version>.md`.
 2. `scripts/audit.sh` must print "no sensitive matches".
-3. Push a tag `v<version>`: `.github/workflows/release.yml` tests, signs with Developer ID, notarizes,
-   staples and publishes `DockPin-<version>.zip` (+ `.sha256`). Its header lists the secrets it needs.
-   Locally, `scripts/release.sh` does the same into `dist/`, using the keychain's Developer ID
-   certificate and the `DockPin-notary` notarytool profile.
-
-The icons are drawn by `scripts/make-icon.py` (Pillow); edit it and rerun to change them.
-
-`set-main-display.swift "<name>" [--apply]` makes a display the main one permanently (dry run
-without `--apply`); DockPin does this itself for the session, so it's only a manual helper.
+3. Push the tag `v<version>`. `.github/workflows/release.yml` tests, signs with Developer ID,
+   notarizes and publishes `DockPin-<version>.zip` with its `.sha256`; its header lists the secrets
+   it needs. `scripts/release.sh` does the same locally into `dist/`, using the keychain's
+   Developer ID certificate and the `DockPin-notary` notarytool profile.

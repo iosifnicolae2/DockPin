@@ -55,10 +55,20 @@ func trace(_ p: CGPoint) { traceFile?.write("\(p.x) \(p.y)\n".data(using: .utf8)
 
 func place(_ p: CGPoint) { CGWarpMouseCursorPosition(p); usleep(150_000); traceFile?.write("jump\n".data(using: .utf8)!); trace(p) }
 
-func dockOrigin() -> CGPoint? {
-    let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as! [[String: Any]]
-    let dock = windows.first { $0["kCGWindowOwnerName"] as? String == "Dock" && $0["kCGWindowLayer"] as? Int == 20 }
-    return (dock?["kCGWindowBounds"] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) }?.origin
+/// The display that reserves room for the Dock on `edge` (its visible frame is inset there).
+func dockDisplayUUID(edge: String) -> String? {
+    RunLoop.current.run(until: Date().addingTimeInterval(0.3))  // take in pending screen updates
+    let screen = NSScreen.screens.first { s in
+        let f = s.frame, v = s.visibleFrame
+        switch edge {
+        case "left": return v.minX - f.minX > 20
+        case "right": return f.maxX - v.maxX > 20
+        default: return v.minY - f.minY > 20
+        }
+    }
+    guard let id = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
+          let uuid = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() else { return nil }
+    return CFUUIDCreateString(nil, uuid) as String
 }
 
 var failures = 0
@@ -78,7 +88,7 @@ let target = plan.pinned.first { $0.uuid == plan.targetUUID }!
 let targetReal = plan.real.first { $0.uuid == plan.targetUUID }!.frame
 let saved = cursor
 print("Dock: \(plan.edge), center: \(target.name)")
-check(dockOrigin() == target.frame.origin, "the Dock is on \(target.name)")
+check(dockDisplayUUID(edge: plan.edge) == target.uuid, "the Dock is on \(target.name)")
 
 /// Crosses from the center into `neighbour` through their shared real border and back.
 func crossing(to neighbour: Display) {
@@ -123,7 +133,7 @@ for d in plan.pinned where d.uuid != plan.targetUUID {
     place(start)
     for _ in 0..<60 { move(by: step) }
     usleep(800_000)
-    check(dockOrigin() == target.frame.origin, "the Dock stays on \(target.name) after pushing at \(d.name)'s \(plan.edge) edge")
+    check(dockDisplayUUID(edge: plan.edge) == target.uuid, "the Dock stays on \(target.name) after pushing at \(d.name)'s \(plan.edge) edge")
 }
 
 place(saved)

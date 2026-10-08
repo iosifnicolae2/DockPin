@@ -21,15 +21,25 @@ final class PointerGuard {
         }
     }
 
+    /// When the last warp happened, to log how soon real input resumed (a long gap would be a visible freeze).
+    private var warpedAt: TimeInterval?
+
     private func handle(_ event: NSEvent) {
+        if let warpedAt {
+            let gapMs = (event.timestamp - warpedAt) * 1000
+            log.notice("next move \(gapMs, format: .fixed(precision: 1)) ms after the warp")
+            self.warpedAt = nil
+        }
         guard let rules, let cg = event.cgEvent, let location = CGEvent(source: nil)?.location else { return }
         let delta = CGVector(dx: Double(cg.getIntegerValueField(.mouseEventDeltaX)), dy: Double(cg.getIntegerValueField(.mouseEventDeltaY)))
+        let before = previous
         let fixed = rules.correction(from: previous, to: location, delta: delta)
         previous = fixed ?? location
         guard let fixed else { return }
         CGWarpMouseCursorPosition(fixed)
         CGAssociateMouseAndMouseCursorPosition(1)
+        warpedAt = ProcessInfo.processInfo.systemUptime
         let lagMs = (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000
-        log.notice("moved pointer \(location.debugDescription, privacy: .public) -> \(fixed.debugDescription, privacy: .public), \(lagMs, format: .fixed(precision: 1)) ms after the event")
+        log.notice("moved pointer \(location.debugDescription, privacy: .public) -> \(fixed.debugDescription, privacy: .public) (was \(before.map { $0.debugDescription } ?? "-", privacy: .public), delta \(delta.dx), \(delta.dy)), \(lagMs, format: .fixed(precision: 1)) ms after the event")
     }
 }

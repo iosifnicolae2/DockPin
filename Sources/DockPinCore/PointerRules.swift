@@ -18,7 +18,8 @@ public struct PointerRules {
     /// Where the pointer should be instead of `current`, or nil when macOS already put it right.
     /// `previous` is where it was after the last event, `delta` this event's movement.
     public func correction(from previous: CGPoint?, to current: CGPoint, delta: CGVector) -> CGPoint? {
-        let replayed = previous.flatMap { replayInRealArrangement(from: $0, to: current, delta: delta) } ?? current
+        let known = previous.flatMap { isContinuous(from: $0, to: current, delta: delta) ? $0 : nil }
+        let replayed = known.flatMap { replayInRealArrangement(from: $0, to: current, delta: delta) } ?? current
         let kept = keepOffDockEdges(replayed)
         return hypot(kept.x - current.x, kept.y - current.y) >= 0.5 ? kept : nil
     }
@@ -30,9 +31,9 @@ public struct PointerRules {
         if now == from && !pushedAgainstEdge { return nil }  // an ordinary move inside one display
         if now != from && offFrom == offNow { return nil }    // a border both arrangements share
 
-        // Edge push: macOS stopped the pointer, so replay from where it stopped. Crossing: from where it was.
-        let start = pushedAgainstEdge ? current : previous
-        let real = CGPoint(x: start.x - offFrom.dx + delta.dx, y: start.y - offFrom.dy + delta.dy)
+        // Where the move would have taken the pointer in the real arrangement. Replaying from the previous
+        // spot carries exactly what the edge swallowed (nothing, if the pointer only reached the edge).
+        let real = CGPoint(x: previous.x - offFrom.dx + delta.dx, y: previous.y - offFrom.dy + delta.dy)
         let fromReal = from.frame.offsetBy(dx: -offFrom.dx, dy: -offFrom.dy)
         // Where macOS would put it in the real arrangement: the full move, else the move with one axis
         // stopped by the edge (the pointer slides along it), else stopped at the edge.
@@ -45,6 +46,12 @@ public struct PointerRules {
         }
         let stopped = clamp(real, into: fromReal)
         return CGPoint(x: stopped.x + offFrom.dx, y: stopped.y + offFrom.dy)
+    }
+
+    /// A move never carries the pointer farther than its own delta; if it did, something else (another
+    /// app, a display change) put the pointer there, and the previous position no longer applies.
+    private func isContinuous(from previous: CGPoint, to current: CGPoint, delta: CGVector) -> Bool {
+        hypot(current.x - previous.x, current.y - previous.y) <= hypot(delta.dx, delta.dy) + 40
     }
 
     private func keepOffDockEdges(_ p: CGPoint) -> CGPoint {

@@ -69,14 +69,20 @@ final class LayoutPlannerTests: XCTestCase {
 final class PointerRulesTests: XCTestCase {
     func testLeavingTheCenterLeftwardsLandsOnTheLGAtTheSameHeight() throws {
         let rules = PointerRules(plan: try plan(.left))
-        XCTAssertEqual(rules.correction(from: CGPoint(x: 3, y: 500), to: CGPoint(x: 0, y: 500), delta: CGVector(dx: -3, dy: 0)),
-                       CGPoint(x: -3, y: -580), "carries on with the movement the edge swallowed")
+        XCTAssertEqual(rules.correction(from: CGPoint(x: 2, y: 500), to: CGPoint(x: 0, y: 500), delta: CGVector(dx: -5, dy: 0)),
+                       CGPoint(x: -3, y: -580), "carries on with the 3 px the edge swallowed")
     }
 
     func testLeavingTheLGRightwardsReturnsAtTheSameHeight() throws {
         let rules = PointerRules(plan: try plan(.left))
         XCTAssertEqual(rules.correction(from: CGPoint(x: -2, y: -580), to: CGPoint(x: -1, y: -580), delta: CGVector(dx: 3, dy: 0)),
-                       CGPoint(x: 2, y: 500))
+                       CGPoint(x: 1, y: 500))
+    }
+
+    func testReachingAMovedBorderWithoutPushingPastItIsLeftAlone() throws {
+        // The move ends exactly on the edge: nothing was swallowed, so nothing to carry across yet.
+        let rules = PointerRules(plan: try plan(.left))
+        XCTAssertNil(rules.correction(from: CGPoint(x: 6, y: 500), to: CGPoint(x: 0, y: 500), delta: CGVector(dx: -6, dy: 0)))
     }
 
     func testOrdinaryMovesAndSharedBordersAreLeftAlone() throws {
@@ -105,9 +111,24 @@ final class PointerRulesTests: XCTestCase {
     func testBottomDockCrossingsFollowTheRealArrangement() throws {
         let rules = PointerRules(plan: try plan(.bottom))
         XCTAssertEqual(rules.correction(from: CGPoint(x: 900, y: 1077), to: CGPoint(x: 900, y: 1079), delta: CGVector(dx: 0, dy: 3)),
-                       CGPoint(x: 2723, y: 1082), "down from the Odyssey lands on the laptop, wherever it was slid to")
+                       CGPoint(x: 2723, y: 1080), "down from the Odyssey lands on the laptop, wherever it was slid to")
         XCTAssertEqual(rules.correction(from: CGPoint(x: 2723, y: 1081), to: CGPoint(x: 2723, y: 1078), delta: CGVector(dx: 0, dy: -3)),
                        CGPoint(x: 900, y: 1078), "up from the laptop returns to the Odyssey, not the PHL it now touches")
+    }
+
+    func testAPointerMovedBySomethingElseIsNotReplayedFromItsOldSpot() throws {
+        // Another app warped the pointer from the Odyssey onto the laptop; the next real move is local.
+        let rules = PointerRules(plan: try plan(.bottom))
+        XCTAssertNil(rules.correction(from: CGPoint(x: 24, y: 540), to: CGPoint(x: 2600, y: 1500), delta: CGVector(dx: 0, dy: 6)))
+    }
+
+    func testRightDockLeavesARealBorderBelowAlone() throws {
+        // Today's desk without the PHL: nothing touches the Odyssey's right edge, so nothing moves.
+        let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
+        let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
+        let rules = PointerRules(plan: try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .right)))
+        XCTAssertNil(rules.correction(from: CGPoint(x: 864, y: 1074), to: CGPoint(x: 864, y: 1080), delta: CGVector(dx: 0, dy: 6)))
     }
 
     func testBottomDockGuardsTheOtherDisplaysBottomEdges() throws {

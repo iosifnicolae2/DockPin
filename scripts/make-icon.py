@@ -1,7 +1,7 @@
 """Draws the DockPin app icon (Resources/AppIcon.icns, AppIcon-1024.png, AppIcon-preview.png) and the
 menu-bar template image.
 Style: one simple element on a soft iridescent pastel square (full-bleed: macOS 26+ masks it to its squircle): the
-Dock, standing up as on a left edge, a frosted glass bar holding four colourful app tiles.
+Dock, standing up as on a left edge, a frosted glass bar holding four light pastel app tiles.
 The menu-bar glyph is the same Dock in one colour.
 Usage: python3 scripts/make-icon.py   (needs Pillow; macOS iconutil)
 """
@@ -19,10 +19,10 @@ U = N / 1024  # one unit of the 1024 design grid
 WHITE = (255, 255, 255, 255)
 BAR = (6.75, 1.4, 11.25, 16.6)  # the Dock on the 18-unit grid (the menu-bar size in points)
 TILES = (2.2, 5.77, 9.33, 12.9)  # tops of its four app tiles, each 2.9 units square
-TILE_COLORS = [((90, 200, 255), (0, 122, 255)),   # blue
-               ((120, 236, 120), (36, 190, 70)),  # green
-               ((255, 214, 80), (255, 140, 0)),   # orange
-               ((255, 120, 180), (240, 40, 110))]  # pink
+TILE_COLORS = [((186, 228, 255), (120, 188, 255)),  # light blue
+               ((196, 242, 200), (122, 214, 150)),  # mint
+               ((255, 234, 176), (255, 196, 120)),  # peach
+               ((255, 204, 228), (246, 146, 190))]  # pink
 
 
 def gradient(size, top, bottom):
@@ -62,11 +62,11 @@ def dock(unit, size):
     box = boxer(unit, size)
     layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     bar = shape(size, box(*BAR), 1.65 * unit)
-    shadow = Image.new("RGBA", (size, size), (60, 40, 110, 0))
-    shadow.putalpha(bar.point(lambda v: v * 120 // 255).transform((size, size), Image.AFFINE, (1, 0, 0, 0, 1, -0.5 * unit)))
+    shadow = Image.new("RGBA", (size, size), (90, 80, 150, 0))
+    shadow.putalpha(bar.point(lambda v: v * 64 // 255).transform((size, size), Image.AFFINE, (1, 0, 0, 0, 1, -0.5 * unit)))
     layer.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(0.7 * unit)))
     glass = gradient(size, (255, 255, 255), (240, 236, 255))
-    glass.putalpha(bar.point(lambda v: v * 150 // 255))  # frosted: the pastel shows through
+    glass.putalpha(bar.point(lambda v: v * 125 // 255))  # frosted: the pastel shows through
     layer.alpha_composite(glass)
     rim = Image.new("RGBA", (size, size), WHITE)
     rim.putalpha(ImageChops.subtract(bar, shape(size, box(BAR[0] + 0.14, BAR[1] + 0.14, BAR[2] - 0.14, BAR[3] - 0.14),
@@ -75,8 +75,8 @@ def dock(unit, size):
     for top, (light, dark) in zip(TILES, TILE_COLORS):
         tile_box = box(7.55, top, 10.45, top + 2.9)
         mask = shape(size, tile_box, 0.8 * unit)
-        tile_shadow = Image.new("RGBA", (size, size), (20, 0, 60, 0))
-        tile_shadow.putalpha(mask.point(lambda v: v * 80 // 255).transform((size, size), Image.AFFINE, (1, 0, 0, 0, 1, -0.18 * unit)))
+        tile_shadow = Image.new("RGBA", (size, size), (80, 60, 140, 0))
+        tile_shadow.putalpha(mask.point(lambda v: v * 40 // 255).transform((size, size), Image.AFFINE, (1, 0, 0, 0, 1, -0.18 * unit)))
         layer.alpha_composite(tile_shadow.filter(ImageFilter.GaussianBlur(0.22 * unit)))
         tile = gradient(size, light, dark)
         tile.putalpha(mask)
@@ -84,7 +84,7 @@ def dock(unit, size):
         x0, y0, x1, y1 = tile_box  # gloss on the upper half
         gloss = Image.new("RGBA", (size, size), WHITE)
         gloss.putalpha(ImageChops.multiply(mask, shape(size, [x0, y0, x1, y0 + (y1 - y0) * 0.5], 0.8 * unit,
-                                                       fill=26)))
+                                                       fill=24)))
         layer.alpha_composite(gloss)
     return layer
 

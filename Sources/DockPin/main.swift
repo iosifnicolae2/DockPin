@@ -24,6 +24,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         pinner.start()
         openAtLoginOnFirstRun()
+        watchSettings()
+    }
+
+    /// The Dock position and the Accessibility grant have no change notifications; checking them is cheap.
+    private func watchSettings() {
+        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if let plan = self.pinner.activePlan, plan.edge != DockPrefs.edge() { self.pinner.reconcile() }
+            let before = self.pinner.pointer.mode
+            self.pinner.pointer.upgradeIfTrusted()
+            if self.pinner.pointer.mode != before { self.rebuildMenu() }
+        }
+    }
+
+    @objc private func askForAccessibility() {
+        let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)
     }
 
     /// The point is to keep the Dock pinned after every login, so DockPin turns this on once by itself;
@@ -49,8 +66,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func rebuildMenu() {
         let menu = NSMenu()
-        let status = pinner.targetName.map { "Dock pinned to \($0)" } ?? "No center display found"
+        let edge = pinner.activePlan?.edge.rawValue ?? ""
+        let status = pinner.targetName.map { "Dock (\(edge)) pinned to \($0)" } ?? "No center display found"
         menu.addItem(withTitle: status, action: nil, keyEquivalent: "").isEnabled = false
+        if pinner.pointer.mode == .monitor {
+            let smooth = menu.addItem(withTitle: "Make Crossings Seamless (Allow Accessibility)…", action: #selector(askForAccessibility), keyEquivalent: "")
+            smooth.target = self
+        }
         menu.addItem(.separator())
         let login = menu.addItem(withTitle: "Open at Login", action: #selector(toggleLogin), keyEquivalent: "")
         login.target = self

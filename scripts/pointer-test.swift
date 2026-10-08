@@ -1,46 +1,56 @@
-// Functional test on the real displays: drives the pointer with synthetic moves while DockPin runs
-// and checks the seam crossings and that the Dock stays on the center display.
-// Usage: swift scripts/pointer-test.swift   (needs DockPin running; the calling terminal needs Accessibility)
+// Functional test on the real displays, with DockPin running: drives the pointer with synthetic moves.
+// For every display that borders the center one in the REAL arrangement it crosses there and back
+// (checking where the pointer lands), and it pushes at every other display's free Dock edge
+// (checking the Dock stays on the center display).
+// Usage: swift scripts/pointer-test.swift   (the calling terminal needs Accessibility to post events)
 import AppKit
 
-var displayFrames: [CGRect] {
-    NSScreen.screens.map { CGDisplayBounds($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID) }
+// MARK: DockPin's saved plan (mirror of DockPinCore.LayoutPlan)
+
+struct Display: Codable { var uuid: String; var name: String; var frame: CGRect }
+struct Plan: Codable { var real: [Display]; var pinned: [Display]; var targetUUID: String; var edge: String }
+
+func liveFrames() -> [String: CGRect] {
+    Dictionary(uniqueKeysWithValues: NSScreen.screens.compactMap { s in
+        let id = s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID
+        return CGDisplayCreateUUIDFromDisplayID(id).map { (CFUUIDCreateString(nil, $0.takeRetainedValue()) as String, CGDisplayBounds(id)) }
+    })
 }
 
-/// Hardware moves are clamped to the display edge; synthetic ones aren't, so clamp them the same way.
-func clampedLikeHardware(_ p: CGPoint) -> CGPoint {
-    if displayFrames.contains(where: { $0.contains(p) }) { return p }
-    let here = CGEvent(source: nil)!.location
-    guard let frame = displayFrames.first(where: { $0.contains(here) }) else { return p }
-    return CGPoint(x: min(max(p.x, frame.minX), frame.maxX - 1), y: min(max(p.y, frame.minY), frame.maxY - 1))
+func activePlan() -> Plan? {
+    let live = liveFrames()
+    let stored = UserDefaults(suiteName: "io.bringes.DockPin")?.dictionaryRepresentation() ?? [:]
+    return stored.filter { $0.key.hasPrefix("plan.") }.compactMap { ($0.value as? Data).flatMap { try? JSONDecoder().decode(Plan.self, from: $0) } }
+        .first { p in p.pinned.count == live.count && p.pinned.allSatisfy { live[$0.uuid] == $0.frame } }
 }
 
-func move(to target: CGPoint, dx: Int64 = 0, dy: Int64 = 0) {
-    let p = clampedLikeHardware(target)
-    let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left)!
-    e.setIntegerValueField(.mouseEventDeltaX, value: dx)
-    e.setIntegerValueField(.mouseEventDeltaY, value: dy)
-    e.post(tap: .cghidEventTap)
-    usleep(30_000)
-}
+// MARK: Pointer
 
 var cursor: CGPoint { CGEvent(source: nil)!.location }
 
-func dockFrame() -> CGRect? {
+/// Hardware moves stop at the display edge; synthetic ones don't, so stop them the same way.
+func clampedLikeHardware(_ p: CGPoint) -> CGPoint {
+    let frames = Array(liveFrames().values)
+    if frames.contains(where: { $0.contains(p) }) { return p }
+    guard let f = frames.first(where: { $0.contains(cursor) }) else { return p }
+    return CGPoint(x: min(max(p.x, f.minX), f.maxX - 1), y: min(max(p.y, f.minY), f.maxY - 1))
+}
+
+func move(by d: CGVector) {
+    let p = clampedLikeHardware(CGPoint(x: cursor.x + d.dx, y: cursor.y + d.dy))
+    let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left)!
+    e.setIntegerValueField(.mouseEventDeltaX, value: Int64(d.dx))
+    e.setIntegerValueField(.mouseEventDeltaY, value: Int64(d.dy))
+    e.post(tap: .cghidEventTap)
+    usleep(12_000)
+}
+
+func place(_ p: CGPoint) { CGWarpMouseCursorPosition(p); usleep(150_000) }
+
+func dockOrigin() -> CGPoint? {
     let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as! [[String: Any]]
     let dock = windows.first { $0["kCGWindowOwnerName"] as? String == "Dock" && $0["kCGWindowLayer"] as? Int == 20 }
-    return (dock?["kCGWindowBounds"] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) }
-}
-
-func screen(named name: String) -> CGRect {
-    let s = NSScreen.screens.first { $0.localizedName == name }!
-    return CGDisplayBounds(s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID)
-}
-
-/// Pushes the pointer leftwards against the left edge of `frame` at height `y`, like a user would.
-func pushLeft(on frame: CGRect, y: CGFloat, times: Int) {
-    move(to: CGPoint(x: frame.minX + 40, y: y))
-    for _ in 0..<times { move(to: CGPoint(x: cursor.x - 6, y: cursor.y), dx: -6) }
+    return (dock?["kCGWindowBounds"] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) }?.origin
 }
 
 var failures = 0
@@ -49,30 +59,65 @@ func check(_ ok: Bool, _ what: String) {
     if !ok { failures += 1 }
 }
 
+// MARK: Test
+
+guard let plan = activePlan() else { print("FAIL no active DockPin plan for these displays"); exit(1) }
+let offsets = Dictionary(uniqueKeysWithValues: plan.pinned.map { d in
+    (d.uuid, CGVector(dx: d.frame.minX - plan.real.first { $0.uuid == d.uuid }!.frame.minX,
+                      dy: d.frame.minY - plan.real.first { $0.uuid == d.uuid }!.frame.minY))
+})
+let target = plan.pinned.first { $0.uuid == plan.targetUUID }!
+let targetReal = plan.real.first { $0.uuid == plan.targetUUID }!.frame
 let saved = cursor
-let center = screen(named: CommandLine.arguments.dropFirst().first ?? "Odyssey G81SF")
-let dockAtStart = dockFrame()
-check(dockAtStart?.minX == center.minX, "Dock starts on the center display (\(dockAtStart.map { "\($0)" } ?? "none"))")
+print("Dock: \(plan.edge), center: \(target.name)")
+check(dockOrigin() == target.frame.origin, "the Dock is on \(target.name)")
 
-pushLeft(on: center, y: center.midY, times: 12)
-check(cursor.x < center.minX, "leaving the center leftwards lands left of it: \(cursor)")
-let onLeft = cursor
-check(NSScreen.screens.contains { CGDisplayBounds($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID).contains(onLeft) }, "landing point is on a display")
-move(to: CGPoint(x: cursor.x + 1, y: cursor.y), dx: 1)
-check(cursor.x < center.minX, "a 1 px wobble back right after crossing stays left of the center: \(cursor)")
-usleep(300_000)
-
-for _ in 0..<12 { move(to: CGPoint(x: cursor.x + 6, y: cursor.y), dx: 6) }
-check(center.contains(cursor) && abs(cursor.y - center.midY) < 2, "coming back rightwards returns at the same height: \(cursor)")
-
-for s in NSScreen.screens {
-    let frame = CGDisplayBounds(s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID)
-    guard frame != center else { continue }
-    pushLeft(on: frame, y: frame.midY, times: 60)
-    usleep(800_000)
-    check(dockFrame()?.minX == center.minX, "Dock stays on the center after pushing at \(s.localizedName)'s left edge (pointer \(cursor))")
+/// Crosses from the center into `neighbour` through their shared real border and back.
+func crossing(to neighbour: Display) {
+    let n = neighbour.frame
+    let t = targetReal
+    let (step, startReal): (CGVector, CGPoint) = {
+        if n.maxX == t.minX { return (CGVector(dx: -6, dy: 0), CGPoint(x: t.minX + 30, y: (max(n.minY, t.minY) + min(n.maxY, t.maxY)) / 2)) }
+        if n.minX == t.maxX { return (CGVector(dx: 6, dy: 0), CGPoint(x: t.maxX - 30, y: (max(n.minY, t.minY) + min(n.maxY, t.maxY)) / 2)) }
+        if n.minY == t.maxY { return (CGVector(dx: 0, dy: 6), CGPoint(x: (max(n.minX, t.minX) + min(n.maxX, t.maxX)) / 2, y: t.maxY - 30)) }
+        return (CGVector(dx: 0, dy: -6), CGPoint(x: (max(n.minX, t.minX) + min(n.maxX, t.maxX)) / 2, y: t.minY + 30))
+    }()
+    place(startReal)  // the target isn't moved, so real == pinned here
+    for _ in 0..<10 { move(by: step) }
+    let off = offsets[neighbour.uuid]!
+    let expected = CGPoint(x: startReal.x + step.dx * 10 + off.dx, y: startReal.y + step.dy * 10 + off.dy)
+    let landed = cursor
+    check(neighbour.frame.offsetBy(dx: off.dx, dy: off.dy).contains(landed) && hypot(landed.x - expected.x, landed.y - expected.y) < 8,
+          "\(target.name) -> \(neighbour.name) lands where the real border leads: \(landed) (expected ~\(expected))")
+    move(by: CGVector(dx: -step.dx / 6, dy: -step.dy / 6))
+    move(by: CGVector(dx: step.dx / 6, dy: step.dy / 6))
+    check(!target.frame.contains(cursor), "a 1 px wobble right after crossing stays on \(neighbour.name)")
+    for _ in 0..<10 { move(by: CGVector(dx: -step.dx, dy: -step.dy)) }
+    check(target.frame.contains(cursor) && hypot(cursor.x - startReal.x, cursor.y - startReal.y) < 8,
+          "\(neighbour.name) -> \(target.name) comes back to the same spot: \(cursor)")
 }
 
-move(to: saved)
+for neighbour in plan.real where neighbour.uuid != plan.targetUUID {
+    let n = neighbour.frame, t = targetReal
+    let sharesBorder = ((n.maxX == t.minX || n.minX == t.maxX) && n.minY < t.maxY && t.minY < n.maxY)
+        || ((n.minY == t.maxY || n.maxY == t.minY) && n.minX < t.maxX && t.minX < n.maxX)
+    if sharesBorder { crossing(to: neighbour) }
+}
+
+/// Pushes at a display's Dock edge like a user summoning the Dock there.
+for d in plan.pinned where d.uuid != plan.targetUUID {
+    let f = d.frame
+    let (start, step): (CGPoint, CGVector) = switch plan.edge {
+    case "left": (CGPoint(x: f.minX + 40, y: f.midY), CGVector(dx: -6, dy: 0))
+    case "right": (CGPoint(x: f.maxX - 40, y: f.midY), CGVector(dx: 6, dy: 0))
+    default: (CGPoint(x: f.midX, y: f.maxY - 40), CGVector(dx: 0, dy: 6))
+    }
+    place(start)
+    for _ in 0..<60 { move(by: step) }
+    usleep(800_000)
+    check(dockOrigin() == target.frame.origin, "the Dock stays on \(target.name) after pushing at \(d.name)'s \(plan.edge) edge")
+}
+
+place(saved)
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

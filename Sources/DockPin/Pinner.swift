@@ -4,10 +4,10 @@ import os
 
 let log = Logger(subsystem: "io.bringes.DockPin", category: "pin")
 
-/// Keeps the pinned arrangement applied for whatever set of displays is connected.
+/// Keeps the pinned arrangement applied for whatever displays are connected and wherever the Dock sits.
 final class Pinner {
     private let defaults = UserDefaults.standard
-    private let pointer = PointerGuard()
+    let pointer = PointerGuard()
     private(set) var activePlan: LayoutPlan?
     var onChange: (() -> Void)?
 
@@ -23,20 +23,23 @@ final class Pinner {
     func reconcile() {
         let live = Displays.current()
         let key = Displays.setKey(live)
+        let edge = DockPrefs.edge()
 
-        if let saved = savedPlan(for: key), Displays.matches(live, saved.pinned) {
-            use(saved)
-            return
-        }
-        guard let target = chooseTarget(in: live), let plan = LayoutPlanner.plan(for: live, targetUUID: target.uuid) else {
+        // If what's live is our own pinned layout, the user's real one is the one we saved with it.
+        let saved = savedPlan(for: key)
+        let real = saved.flatMap { Displays.matches(live, $0.pinned) ? $0.real : nil } ?? live
+
+        guard let target = chooseTarget(in: real), let plan = LayoutPlanner.plan(for: real, targetUUID: target.uuid, edge: edge) else {
             log.notice("no center display among \(live.count) displays; nothing to pin")
             use(nil)
             return
         }
-        save(plan, for: key)
+        if plan != saved || !Displays.matches(live, plan.pinned) {
+            save(plan, for: key)
+        }
         if !Displays.matches(live, plan.pinned) {
             let ok = Displays.arrange(plan.pinned)
-            log.notice("pinned the Dock to \(target.name, privacy: .public): \(ok ? "applied" : "failed", privacy: .public)")
+            log.notice("pinned the \(edge.rawValue, privacy: .public) Dock to \(target.name, privacy: .public): \(ok ? "applied" : "failed", privacy: .public)")
         }
         use(plan)
     }

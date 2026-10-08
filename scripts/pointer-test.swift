@@ -43,9 +43,17 @@ func move(by d: CGVector) {
     e.setIntegerValueField(.mouseEventDeltaY, value: Int64(d.dy))
     e.post(tap: .cghidEventTap)
     usleep(12_000)
+    trace(cursor)
 }
 
-func place(_ p: CGPoint) { CGWarpMouseCursorPosition(p); usleep(150_000) }
+/// DOCKPIN_TRACE=<file>: append every pointer position, for drawing the path afterwards.
+let traceFile = ProcessInfo.processInfo.environment["DOCKPIN_TRACE"].flatMap { path -> FileHandle? in
+    FileManager.default.createFile(atPath: path, contents: nil)
+    return FileHandle(forWritingAtPath: path)
+}
+func trace(_ p: CGPoint) { traceFile?.write("\(p.x) \(p.y)\n".data(using: .utf8)!) }
+
+func place(_ p: CGPoint) { CGWarpMouseCursorPosition(p); usleep(150_000); traceFile?.write("jump\n".data(using: .utf8)!); trace(p) }
 
 func dockOrigin() -> CGPoint? {
     let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as! [[String: Any]]

@@ -3,7 +3,20 @@
 // Usage: swift scripts/pointer-test.swift   (needs DockPin running; the calling terminal needs Accessibility)
 import AppKit
 
-func move(to p: CGPoint, dx: Int64 = 0, dy: Int64 = 0) {
+var displayFrames: [CGRect] {
+    NSScreen.screens.map { CGDisplayBounds($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID) }
+}
+
+/// Hardware moves are clamped to the display edge; synthetic ones aren't, so clamp them the same way.
+func clampedLikeHardware(_ p: CGPoint) -> CGPoint {
+    if displayFrames.contains(where: { $0.contains(p) }) { return p }
+    let here = CGEvent(source: nil)!.location
+    guard let frame = displayFrames.first(where: { $0.contains(here) }) else { return p }
+    return CGPoint(x: min(max(p.x, frame.minX), frame.maxX - 1), y: min(max(p.y, frame.minY), frame.maxY - 1))
+}
+
+func move(to target: CGPoint, dx: Int64 = 0, dy: Int64 = 0) {
+    let p = clampedLikeHardware(target)
     let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left)!
     e.setIntegerValueField(.mouseEventDeltaX, value: dx)
     e.setIntegerValueField(.mouseEventDeltaY, value: dy)
@@ -27,7 +40,7 @@ func screen(named name: String) -> CGRect {
 /// Pushes the pointer leftwards against the left edge of `frame` at height `y`, like a user would.
 func pushLeft(on frame: CGRect, y: CGFloat, times: Int) {
     move(to: CGPoint(x: frame.minX + 40, y: y))
-    for _ in 0..<times { move(to: CGPoint(x: cursor.x - 6, y: y), dx: -6) }
+    for _ in 0..<times { move(to: CGPoint(x: cursor.x - 6, y: cursor.y), dx: -6) }
 }
 
 var failures = 0
@@ -45,6 +58,9 @@ pushLeft(on: center, y: center.midY, times: 12)
 check(cursor.x < center.minX, "leaving the center leftwards lands left of it: \(cursor)")
 let onLeft = cursor
 check(NSScreen.screens.contains { CGDisplayBounds($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID).contains(onLeft) }, "landing point is on a display")
+move(to: CGPoint(x: cursor.x + 1, y: cursor.y), dx: 1)
+check(cursor.x < center.minX, "a 1 px wobble back right after crossing stays left of the center: \(cursor)")
+usleep(300_000)
 
 for _ in 0..<12 { move(to: CGPoint(x: cursor.x + 6, y: cursor.y), dx: 6) }
 check(center.contains(cursor) && abs(cursor.y - center.midY) < 2, "coming back rightwards returns at the same height: \(cursor)")

@@ -20,6 +20,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspace.addObserver(self, selector: #selector(displaysChanged), name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
 
         pinner.start()
+        openAtLoginOnFirstRun()
+    }
+
+    /// The point is to keep the Dock pinned after every login, so DockPin turns this on once by itself;
+    /// turning it off from the menu sticks.
+    private func openAtLoginOnFirstRun() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "loginItemOffered") else { return }
+        defaults.set(true, forKey: "loginItemOffered")
+        if SMAppService.mainApp.status != .enabled { toggleLogin() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -53,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             log.error("login item: \(error.localizedDescription, privacy: .public)")
         }
+        log.notice("open at login: status \(SMAppService.mainApp.status.rawValue) (1 = enabled, 2 = needs approval)")
         rebuildMenu()
     }
 }

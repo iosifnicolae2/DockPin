@@ -39,20 +39,29 @@ final class PointerRulesTests: XCTestCase {
     }
 
     func testLeavingOdysseyLeftwardsLandsOnLGAtTheSameHeight() {
-        XCTAssertEqual(rules.warpTarget(for: CGPoint(x: 0, y: 500), delta: CGVector(dx: -3, dy: 0)), CGPoint(x: -1, y: -580))
+        XCTAssertEqual(rules.warp(for: CGPoint(x: 0, y: 500), delta: CGVector(dx: -3, dy: 0))?.point, CGPoint(x: -4, y: -580), "lands past the border, carrying the motion")
     }
 
     func testLeavingLGRightwardsLandsOnOdysseyAtTheSameHeight() {
-        XCTAssertEqual(rules.warpTarget(for: CGPoint(x: -0.5, y: -580), delta: CGVector(dx: 3, dy: 0)), CGPoint(x: 0, y: 500))
+        XCTAssertEqual(rules.warp(for: CGPoint(x: -0.5, y: -580), delta: CGVector(dx: 3, dy: 0))?.point, CGPoint(x: 3, y: 500))
     }
 
     func testMovingInsideADisplayDoesNothing() {
-        XCTAssertNil(rules.warpTarget(for: CGPoint(x: 900, y: 500), delta: CGVector(dx: -3, dy: 0)))
-        XCTAssertNil(rules.warpTarget(for: CGPoint(x: 1919.5, y: 500), delta: CGVector(dx: 3, dy: 0)), "Odyssey -> PHL is a real edge")
+        XCTAssertNil(rules.warp(for: CGPoint(x: 900, y: 500), delta: CGVector(dx: -3, dy: 0)))
+        XCTAssertNil(rules.warp(for: CGPoint(x: 1919.5, y: 500), delta: CGVector(dx: 3, dy: 0)), "Odyssey -> PHL is a real edge")
+    }
+
+    func testSlowCrossingStillLandsInsideTheNeighbour() {
+        let landing = rules.warp(for: CGPoint(x: 0.4, y: 10), delta: CGVector(dx: -1, dy: 0))?.point
+        XCTAssertEqual(landing, CGPoint(x: -2, y: -1070), "not on the LG's last column, where a wobble would bounce it back")
+    }
+
+    func testPointJustOutsideEveryDisplayStillCrosses() {
+        XCTAssertEqual(rules.warp(for: CGPoint(x: -2, y: 540), delta: CGVector(dx: -6, dy: 0))?.point, CGPoint(x: -7, y: -540))
     }
 
     func testFreeLeftEdgesOfOtherDisplaysAreGuarded() {
-        XCTAssertEqual(rules.warpTarget(for: CGPoint(x: -1920, y: -500), delta: CGVector(dx: -3, dy: 0)), CGPoint(x: -1919, y: -500))
-        XCTAssertEqual(rules.warpTarget(for: CGPoint(x: 97, y: 1500), delta: CGVector(dx: -3, dy: 0)), CGPoint(x: 98, y: 1500))
+        XCTAssertEqual(rules.warp(for: CGPoint(x: -1920, y: -500), delta: CGVector(dx: -3, dy: 0)), .edgeGuard(to: CGPoint(x: -1919, y: -500)))
+        XCTAssertEqual(rules.warp(for: CGPoint(x: 97, y: 1500), delta: CGVector(dx: -3, dy: 0)), .edgeGuard(to: CGPoint(x: 98, y: 1500)))
     }
 }

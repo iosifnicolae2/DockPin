@@ -7,7 +7,7 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 chrome="${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work" 2>/dev/null || true' EXIT
 
 cp "$root/scripts/readme-image/page.html" "$work/"
 swift "$root/scripts/readme-image/assets.swift" "$work/assets" >/dev/null
@@ -24,5 +24,6 @@ pid=$!
 for _ in $(seq 60); do [ -s "$out" ] && break; sleep 1; done
 sleep 1
 kill "$pid" 2>/dev/null || true
+wait "$pid" 2>/dev/null || true
 [ -s "$out" ] || { echo "Chrome wrote no picture" >&2; exit 1; }
 echo "wrote docs/dockpin-screens.png"

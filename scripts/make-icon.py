@@ -1,5 +1,5 @@
 """Writes the DockPin icon sources: Resources/AppIcon.icon (an Icon Composer icon: a pastel wallpaper layer and a
-Liquid Glass Dock with four app tiles) and the menu-bar template image Resources/MenuBarIcon(@2x).png.
+Liquid Glass Dock with three dots) and the menu-bar template image Resources/MenuBarIcon(@2x).png.
 scripts/make-icon.sh runs this, then compiles the .icon. Open Resources/AppIcon.icon in Icon Composer to tweak it.
 Usage: python3 scripts/make-icon.py   (needs Pillow)
 """
@@ -12,29 +12,43 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(ROOT, "Resources")
 ICON = os.path.join(RES, "AppIcon.icon")
 
-# The Dock in icon points (1024 canvas, centered): a bar holding four square tiles.
-TILE, GAP, PAD = 176, 24, 28
-BAR_W, BAR_H = TILE + 2 * PAD, 4 * TILE + 3 * GAP + 2 * PAD
-TILE_CENTERS = [round((i - 1.5) * (TILE + GAP)) for i in range(4)]  # top to bottom
-TILE_COLORS = ["srgb:0.55,0.78,1.00,1.0",  # sky blue
-               "srgb:0.52,0.87,0.64,1.0",  # mint
-               "srgb:1.00,0.79,0.48,1.0",  # peach
-               "srgb:1.00,0.60,0.77,1.0"]  # pink
+# The Dock in icon points (1024 canvas, centered): a bar holding three round dots.
+DOT, GAP, PAD = 150, 44, 40
+BAR_W, BAR_H = DOT + 2 * PAD, 3 * DOT + 2 * GAP + 2 * PAD
+BAR_RADIUS = BAR_W // 2 - 20
+DOT_CENTERS = [(i - 1) * (DOT + GAP) for i in range(3)]  # top to bottom
+DOT_COLORS = ["srgb:0.50,0.76,1.00,1.0",  # sky blue
+              "srgb:1.00,0.58,0.76,1.0",  # pink
+              "srgb:1.00,0.76,0.42,1.0"]  # warm yellow
+
+# The wallpaper: the reference pastel, a diagonal wash from the top-left to the bottom-right.
+WASH = [(0.00, (150, 220, 255)),  # light cyan
+        (0.30, (208, 224, 252)),  # pale blue
+        (0.48, (236, 226, 248)),  # white-lilac
+        (0.66, (250, 214, 226)),  # pink
+        (1.00, (255, 218, 150))]  # warm yellow
+
+
+def wash(t):
+    for (t0, c0), (t1, c1) in zip(WASH, WASH[1:]):
+        if t <= t1:
+            k = (t - t0) / (t1 - t0)
+            return tuple(round(a + (b - a) * k) for a, b in zip(c0, c1))
+    return WASH[-1][1]
 
 
 def wallpaper(size=1024):
-    """Soft iridescent pastel: cyan top-left, lilac-white centre, pink and warm yellow towards the bottom-right."""
-    s = 2 * size  # drawn at 2x for smooth blurs
-    img = Image.new("RGB", (s, s), (236, 230, 252))
-    blobs = [((160, 150), 420, (140, 218, 255)), ((520, 470), 300, (244, 238, 255)),
-             ((860, 700), 380, (255, 182, 220)), ((420, 960), 330, (255, 224, 160)),
-             ((960, 180), 260, (214, 200, 255))]
-    u = s / 1024
-    for (cx, cy), r, color in blobs:
-        blob = Image.new("L", (s, s), 0)
-        ImageDraw.Draw(blob).ellipse([(cx - r) * u, (cy - r) * u, (cx + r) * u, (cy + r) * u], fill=255)
-        img = Image.composite(Image.new("RGB", (s, s), color), img, blob.filter(ImageFilter.GaussianBlur(r * 0.6 * u)))
-    return img.resize((size, size), Image.LANCZOS)
+    """The pastel wash, leaning so the yellow sits towards the right and the cyan in the top-left corner."""
+    n = 256  # smooth enough to draw small and scale up
+    img = Image.new("RGB", (n, n))
+    img.putdata([wash(min(1.0, 0.55 * x / (n - 1) + 0.45 * y / (n - 1)) ) for y in range(n) for x in range(n)])
+    return img.resize((size, size), Image.BICUBIC).filter(ImageFilter.GaussianBlur(size / 100))
+
+
+def circle_svg(diameter):
+    r = diameter / 2
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{diameter}" height="{diameter}" '
+            f'viewBox="0 0 {diameter} {diameter}"><circle cx="{r}" cy="{r}" r="{r}" fill="#ffffff"/></svg>\n')
 
 
 def rounded_svg(width, height, radius):
@@ -51,11 +65,11 @@ def layer(name, image, fill=None, y=0, glass=True):
 
 
 def icon_json():
-    tiles = [layer(f"tile {i + 1}", "tile.svg", color, y) for i, (color, y) in enumerate(zip(TILE_COLORS, TILE_CENTERS))]
+    dots = [layer(f"dot {i + 1}", "dot.svg", color, y) for i, (color, y) in enumerate(zip(DOT_COLORS, DOT_CENTERS))]
     return {
         "fill": {"automatic-gradient": "extended-srgb:0.90000,0.90000,1.00000,1.00000"},
         "groups": [  # front to back
-            {"name": "Tiles", "layers": tiles, "lighting": "individual", "specular": True,
+            {"name": "Dots", "layers": dots, "lighting": "individual", "specular": True,
              "shadow": {"kind": "neutral", "opacity": 0.3}, "translucency": {"enabled": False, "value": 0}},
             {"name": "Dock", "layers": [layer("Dock", "dock.svg", "srgb:1,1,1,0.85")], "specular": True,
              "blur-material": 0.6, "shadow": {"kind": "neutral", "opacity": 0.55},
@@ -67,17 +81,17 @@ def icon_json():
 
 
 def menu_bar_template(pt=18, scale=2):
-    """Black-on-transparent template image of the same Dock: a see-through bar and four solid tiles."""
+    """Black-on-transparent template image of the same Dock: a see-through bar and three solid dots."""
     px = pt * scale * 4
     unit = px / BAR_H * 0.85  # the bar is 85% of the image's height
     img = Image.new("RGBA", (px, px), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     cx, cy = px / 2, px / 2
     draw.rounded_rectangle([cx - BAR_W / 2 * unit, cy - BAR_H / 2 * unit, cx + BAR_W / 2 * unit, cy + BAR_H / 2 * unit],
-                           radius=72 * unit, fill=(0, 0, 0, 95))
-    for ty in TILE_CENTERS:
-        draw.rounded_rectangle([cx - TILE / 2 * unit, cy + (ty - TILE / 2) * unit, cx + TILE / 2 * unit,
-                                cy + (ty + TILE / 2) * unit], radius=40 * unit, fill=(0, 0, 0, 255))
+                           radius=BAR_RADIUS * unit, fill=(0, 0, 0, 95))
+    for dy in DOT_CENTERS:
+        draw.ellipse([cx - DOT / 2 * unit, cy + (dy - DOT / 2) * unit, cx + DOT / 2 * unit, cy + (dy + DOT / 2) * unit],
+                     fill=(0, 0, 0, 255))
     return img.resize((pt * scale, pt * scale), Image.LANCZOS)
 
 
@@ -85,9 +99,9 @@ def main():
     os.makedirs(os.path.join(ICON, "Assets"), exist_ok=True)
     wallpaper().save(os.path.join(ICON, "Assets", "wallpaper.png"))
     with open(os.path.join(ICON, "Assets", "dock.svg"), "w") as f:
-        f.write(rounded_svg(BAR_W, BAR_H, 78))
-    with open(os.path.join(ICON, "Assets", "tile.svg"), "w") as f:
-        f.write(rounded_svg(TILE, TILE, 44))
+        f.write(rounded_svg(BAR_W, BAR_H, BAR_RADIUS))
+    with open(os.path.join(ICON, "Assets", "dot.svg"), "w") as f:
+        f.write(circle_svg(DOT))
     with open(os.path.join(ICON, "icon.json"), "w") as f:
         json.dump(icon_json(), f, indent=2)
         f.write("\n")

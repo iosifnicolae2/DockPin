@@ -54,5 +54,16 @@ swift scripts/pointer-test.swift # moves the real pointer: seam crossings + Dock
 Open at Login: the DockPin menu-bar icon > Open at Login.
 Logs: `/usr/bin/log show --last 1h --predicate 'subsystem == "io.bringes.DockPin"'`.
 
+## Release
+
+1. Bump `CFBundleShortVersionString` in `Resources/Info.plist`, add `docs/releases/v<version>.md`.
+2. `scripts/audit.sh` must print "no sensitive matches".
+3. Push a tag `v<version>`: `.github/workflows/release.yml` tests, signs with Developer ID, notarizes,
+   staples and publishes `DockPin-<version>.zip` (+ `.sha256`). Its header lists the secrets it needs.
+   Locally, `scripts/release.sh` does the same into `dist/`, using the keychain's Developer ID
+   certificate and the `DockPin-notary` notarytool profile.
+
+The icons are drawn by `scripts/make-icon.py` (Pillow); edit it and rerun to change them.
+
 `set-main-display.swift "<name>" [--apply]` makes a display the main one permanently (dry run
 without `--apply`); DockPin does this itself for the session, so it's only a manual helper.

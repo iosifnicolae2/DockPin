@@ -1,0 +1,25 @@
+#!/bin/sh
+# Looks for sensitive data in every commit of this repo before it is published.
+# Usage: scripts/audit.sh   (prints matches; exit 1 if any)
+set -u
+cd "$(dirname "$0")/.." || exit 2
+pattern='/Users/|/home/|@gmail|serial number|password *[:=]|secret *[:=]|token *[:=]|BEGIN (RSA |EC |OPENSSH )?PRIVATE|BEGIN CERTIFICATE|AuthKey_|\.p8\b|\.p12\b|192\.168\.|10\.[0-9]+\.[0-9]+\.[0-9]+|tmp/claude|scratchpad'
+allowed='scripts/audit.sh|release.yml:.*(secrets\.|github\.token|openssl rand)|\.github/workflows/release.yml:.*(p12|P12)|scripts/release.sh:.*notarytool'
+
+found=0
+for rev in $(git rev-list --all); do
+    git grep -n -I -i -E "$pattern" "$rev" -- . 2>/dev/null
+done | sed -E 's/^[0-9a-f]{40}://' | sort -u | grep -v -E "$allowed" && found=1
+
+echo "--- commit authors / committers (public once pushed):"
+git log --all --format='%an <%ae> | %cn <%ce>' | sort -u
+echo "--- files in the tree:"
+git ls-files | sed 's/^/  /'
+echo "--- large or binary files:"
+git ls-files | while read -r f; do
+    size=$(wc -c < "$f")
+    [ "$size" -gt 200000 ] && echo "  $f: $size bytes"
+done
+
+if [ "$found" = 1 ]; then echo "AUDIT: matches above need a look"; exit 1; fi
+echo "AUDIT: no sensitive matches"

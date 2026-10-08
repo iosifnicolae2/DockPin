@@ -1,8 +1,8 @@
 """Draws the DockPin app icon (Resources/AppIcon.icns, AppIcon-1024.png, AppIcon-preview.png) and the
 menu-bar template image.
 Style: flat. A solid indigo square with a soft top-to-bottom gradient (full-bleed: macOS 26+ masks it to
-its squircle) and one white glyph: a monitor whose Dock sits on its left edge. The menu-bar glyph is the
-same drawing in black.
+its squircle) and one white glyph: the Dock, standing up as on a left edge: a see-through bar holding three app tiles.
+The menu-bar glyph is the same drawing in black.
 Usage: python3 scripts/make-icon.py   (needs Pillow; macOS iconutil)
 """
 import os
@@ -28,40 +28,40 @@ def background():
     return strip.resize((N, N))
 
 
-def glyph(draw, unit, origin=(0, 0), color=WHITE, cutout=None):
-    """A monitor with the Dock on its left edge, on an 18-unit grid (the menu-bar size in points).
-    `cutout` is the colour of the Dock's app dots; None leaves the Dock solid."""
-    ox, oy = origin
+def glyph(unit, size, color=WHITE):
+    """The Dock itself, standing up as it does on the left edge: a see-through rounded bar holding three
+    solid app tiles, on an 18-unit grid (the menu-bar size in points). Returns an RGBA layer of `size`."""
+    layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    off = (size - 18 * unit) / 2
 
     def box(x0, y0, x1, y1):
-        return [ox + x0 * unit, oy + y0 * unit, ox + x1 * unit, oy + y1 * unit]
+        return [off + x0 * unit, off + y0 * unit, off + x1 * unit, off + y1 * unit]
 
-    draw.rounded_rectangle(box(1.5, 3.2, 16.5, 13.4), radius=2.0 * unit, outline=color, width=round(1.5 * unit))
-    draw.rounded_rectangle(box(3.7, 5.3, 6.3, 11.3), radius=1.0 * unit, fill=color)
-    if cutout:
-        for cy in (6.55, 8.3, 10.05):
-            draw.rounded_rectangle(box(4.45, cy - 0.5, 5.55, cy + 0.6), radius=0.3 * unit, fill=cutout)
-    draw.rounded_rectangle(box(8.2, 13.4, 9.8, 15.4), radius=0, fill=color)
-    draw.rounded_rectangle(box(5.8, 15.0, 12.2, 16.4), radius=0.7 * unit, fill=color)
+    bar = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(bar).rounded_rectangle(box(5.8, 1.4, 12.2, 16.6), radius=2.2 * unit, fill=color[:3] + (95,))
+    layer.alpha_composite(bar)  # the Dock's glass: the background shows through
+    for top in (2.5, 7.0, 11.5):  # three app tiles
+        draw.rounded_rectangle(box(7.0, top, 11.0, top + 4.0), radius=1.0 * unit, fill=color)
+    return layer
 
 
 def app_icon():
     img = background()
-    unit = 640 * U / 18  # the glyph spans about 62% of the icon
-    origin = ((N - 18 * unit) / 2, (N - 18 * unit) / 2 + 8 * U)
-    shadow = Image.new("RGBA", (N, N), (0, 0, 0, 0))
-    glyph(ImageDraw.Draw(shadow), unit, (origin[0], origin[1] + 14 * U), color=(30, 20, 120, 70))
-    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(18 * U)))
-    glyph(ImageDraw.Draw(img), unit, origin, cutout=BOTTOM + (255,))
+    unit = 760 * U / 18  # the Dock spans about 75% of the icon's height
+    art = glyph(unit, N)
+    shadow = Image.new("RGBA", (N, N), (30, 20, 120, 0))
+    shadow.putalpha(art.getchannel("A").point(lambda v: v * 70 // 255))
+    shadow = shadow.transform((N, N), Image.AFFINE, (1, 0, 0, 0, 1, -16 * U))
+    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(20 * U)))
+    img.alpha_composite(art)
     return img.resize((1024, 1024), Image.LANCZOS)
 
 
 def menu_bar_template(pt=18, scale=2):
     """Black-on-transparent template image of the same glyph."""
     px = pt * scale * 4
-    img = Image.new("RGBA", (px, px), (0, 0, 0, 0))
-    glyph(ImageDraw.Draw(img), px / 18, color=(0, 0, 0, 255))
-    return img.resize((pt * scale, pt * scale), Image.LANCZOS)
+    return glyph(px / 18, px, color=(0, 0, 0, 255)).resize((pt * scale, pt * scale), Image.LANCZOS)
 
 
 def masked_preview(master):

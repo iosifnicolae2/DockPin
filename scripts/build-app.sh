@@ -21,7 +21,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary" "$app/Contents/MacOS/DockPin"
 cp "$root/Resources/Info.plist" "$app/Contents/Info.plist"
-cp "$root/Resources/AppIcon.icns" "$root/Resources/MenuBarIcon.png" "$root/Resources/MenuBarIcon@2x.png" "$app/Contents/Resources/"
+cp "$root/Resources/Assets.car" "$root/Resources/AppIcon.icns" "$root/Resources/MenuBarIcon.png" "$root/Resources/MenuBarIcon@2x.png" "$app/Contents/Resources/"
 
 if [ "$identity" = "-" ]; then
     codesign --force --options runtime --sign - "$app"

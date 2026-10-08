@@ -1,0 +1,120 @@
+{
+  "fill": {
+    "automatic-gradient": "extended-srgb:0.90000,0.90000,1.00000,1.00000"
+  },
+  "groups": [
+    {
+      "name": "Dots",
+      "layers": [
+        {
+          "name": "dot 1",
+          "image-name": "dot.svg",
+          "glass": true,
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              -194
+            ]
+          },
+          "fill": {
+            "solid": "srgb:0.50,0.76,1.00,1.0"
+          }
+        },
+        {
+          "name": "dot 2",
+          "image-name": "dot.svg",
+          "glass": true,
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          },
+          "fill": {
+            "solid": "srgb:1.00,0.58,0.76,1.0"
+          }
+        },
+        {
+          "name": "dot 3",
+          "image-name": "dot.svg",
+          "glass": true,
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              194
+            ]
+          },
+          "fill": {
+            "solid": "srgb:1.00,0.76,0.42,1.0"
+          }
+        }
+      ],
+      "lighting": "individual",
+      "specular": true,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.3
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    },
+    {
+      "name": "Dock",
+      "layers": [
+        {
+          "name": "Dock",
+          "image-name": "dock.svg",
+          "glass": true,
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          },
+          "fill": {
+            "solid": "srgb:1,1,1,0.85"
+          }
+        }
+      ],
+      "specular": true,
+      "blur-material": 0.6,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.55
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.3
+      }
+    },
+    {
+      "name": "Wallpaper",
+      "layers": [
+        {
+          "name": "Wallpaper",
+          "image-name": "wallpaper.png",
+          "glass": false,
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "specular": false
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

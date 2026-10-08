@@ -1,0 +1,166 @@
+<!doctype html>
+<!-- The README picture: three monitors and a laptop drawn as a macOS desktop, the Dock on the center monitor.
+     Rendered by scripts/make-readme-image.sh (headless Chrome, 2x) next to an assets/ folder of this Mac's icons. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --menu-h: 12px; --tile: 21px; }
+  html, body { margin: 0; background: transparent; }
+  body { width: 1600px; height: 740px; position: relative; overflow: hidden;
+         font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+
+  .monitor { position: absolute; }
+  .frame { position: absolute; inset: 0; background: #0d0d0f; border-radius: 9px;
+           box-shadow: 0 0 0 1px #3a3a3e, 0 18px 40px rgba(0, 0, 0, .28), 0 4px 10px rgba(0, 0, 0, .18); }
+  .screen { position: absolute; inset: 7px; overflow: hidden; border-radius: 3px; background: #0b1f5c; }
+  .neck { position: absolute; left: 50%; width: 64px; margin-left: -32px; height: 74px;
+          background: linear-gradient(90deg, #a9acb3, #dcdee2 45%, #b8bbc1); }
+  .base { position: absolute; left: 50%; width: 190px; margin-left: -95px; height: 9px; border-radius: 4px 4px 3px 3px;
+          background: linear-gradient(#e2e4e7, #a7aab0); box-shadow: 0 8px 14px rgba(0, 0, 0, .22); }
+
+  .laptop .frame { border-radius: 12px 12px 4px 4px; box-shadow: 0 0 0 1px #6b6d72, 0 10px 26px rgba(0, 0, 0, .22); }
+  .notch { position: absolute; top: 7px; left: 50%; width: 52px; margin-left: -26px; height: 10px; background: #0d0d0f;
+           border-radius: 0 0 5px 5px; z-index: 5; }
+  .deck { position: absolute; height: 12px; border-radius: 2px 2px 10px 10px;
+          background: linear-gradient(#e6e7ea, #b9bbc0 70%, #8f9196); box-shadow: 0 12px 20px rgba(0, 0, 0, .25); }
+  .deck::after { content: ""; position: absolute; top: 0; left: 50%; width: 70px; margin-left: -35px; height: 4px;
+                 background: #a2a4a9; border-radius: 0 0 6px 6px; }
+
+  svg.wall { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  .menubar { position: absolute; top: 0; left: 0; right: 0; height: var(--menu-h); display: flex; align-items: center;
+             padding: 0 8px; gap: 9px; color: #fff; font-size: 7.6px; letter-spacing: .01em;
+             text-shadow: 0 0 3px rgba(0, 0, 0, .25); white-space: nowrap; z-index: 4; }
+  .menubar.secondary { opacity: .62; }
+  .menubar b { font-weight: 700; }
+  .menubar .spacer { flex: 1; }
+  .menubar img { height: 8px; display: block; }
+  .menubar img.apple { height: 8.5px; margin-right: 2px; }
+  .menubar img.pin { height: 11px; filter: invert(1); }
+  .menubar .notch-gap { width: 60px; }
+
+  .dock { position: absolute; left: 4px; top: 50%; transform: translateY(-46%); padding: 5px 4px 5px 5px; border-radius: 13px;
+          display: flex; flex-direction: column; align-items: center; gap: 3px; z-index: 3;
+          background: rgba(255, 255, 255, .2); backdrop-filter: blur(14px) saturate(1.7);
+          box-shadow: inset 0 0 0 .6px rgba(255, 255, 255, .55), inset 1px 1px 0 rgba(255, 255, 255, .25),
+                      0 6px 18px rgba(0, 0, 0, .28); }
+  .dock .app { position: relative; width: var(--tile); height: var(--tile); }
+  .dock .app img { width: 100%; height: 100%; display: block; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .25)); }
+  .dock .app.running::before { content: ""; position: absolute; left: -3.1px; top: 50%; width: 2.2px; height: 2.2px;
+                               margin-top: -1.1px; border-radius: 50%; background: rgba(255, 255, 255, .85); }
+  .dock .sep { width: 15px; height: .8px; background: rgba(255, 255, 255, .45); margin: 2px 0; }
+
+  .window { position: absolute; border-radius: 9px; overflow: hidden; z-index: 2;
+            background: rgba(246, 246, 248, .93); backdrop-filter: blur(20px);
+            box-shadow: 0 0 0 .6px rgba(0, 0, 0, .25), 0 14px 34px rgba(0, 0, 0, .35); }
+  .window .bar { height: 18px; display: flex; align-items: center; gap: 4px; padding: 0 8px; }
+  .window .bar i { width: 6px; height: 6px; border-radius: 50%; display: block; }
+  .window .bar i:nth-child(1) { background: #ff5f57; } .window .bar i:nth-child(2) { background: #febc2e; }
+  .window .bar i:nth-child(3) { background: #28c840; }
+  .window .bar span { margin-left: 8px; font-size: 7px; font-weight: 600; color: #333; }
+  .window .side { position: absolute; left: 5px; top: 22px; bottom: 5px; width: 62px; border-radius: 6px;
+                  background: rgba(225, 225, 232, .8); }
+  .window .side p { margin: 6px 7px 0; height: 4px; border-radius: 2px; background: rgba(0, 0, 0, .14); }
+  .window .grid { position: absolute; left: 78px; top: 26px; right: 8px; display: grid;
+                  grid-template-columns: repeat(auto-fill, 26px); gap: 10px 14px; }
+  .window .grid div { position: relative; width: 26px; height: 19px; margin-top: 2px; border-radius: 2px 3px 3px 3px;
+                      background: linear-gradient(#8ccaff, #4a9af2); }
+  .window .grid div::before { content: ""; position: absolute; left: 0; top: -2.5px; width: 10px; height: 3px;
+                              border-radius: 2px 2px 0 0; background: #7cbcfb; }
+  .window .grid div::after { content: ""; display: block; margin: 23px 3px 0; height: 3px; border-radius: 2px;
+                             background: rgba(0, 0, 0, .18); }
+</style>
+</head>
+<body>
+<script>
+const APPS = ["Finder", "Apps", "Safari", "Messages", "Mail", "Photos", "Calendar", "Music", "System Settings"];
+const RUNNING = new Set(["Finder", "Safari", "Messages"]);
+
+function wallpaper(id) {
+  // An abstract macOS-style wallpaper: deep blue, with soft sweeping bands of light.
+  return `<svg class="wall" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <linearGradient id="bg${id}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#0a1b5e"/><stop offset=".55" stop-color="#1638a8"/><stop offset="1" stop-color="#3b1d8f"/>
+      </linearGradient>
+      <linearGradient id="b1${id}" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#4fd2ff"/><stop offset=".5" stop-color="#3b7bff"/><stop offset="1" stop-color="#8a5cff"/>
+      </linearGradient>
+      <linearGradient id="b2${id}" x1="0" y1="1" x2="1" y2="0">
+        <stop offset="0" stop-color="#ff7ad9"/><stop offset=".5" stop-color="#9b6bff"/><stop offset="1" stop-color="#57c8ff"/>
+      </linearGradient>
+      <linearGradient id="b3${id}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#c6f1ff"/><stop offset="1" stop-color="#6aa8ff"/>
+      </linearGradient>
+      <filter id="soft${id}" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="28"/></filter>
+      <filter id="edge${id}" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"/></filter>
+    </defs>
+    <rect width="1600" height="1000" fill="url(#bg${id})"/>
+    <path d="M-200 760 C 200 520, 520 900, 900 640 S 1500 380, 1900 520 L 1900 1200 L -200 1200 Z"
+          fill="url(#b1${id})" opacity=".75" filter="url(#soft${id})"/>
+    <path d="M-200 900 C 300 700, 700 1000, 1100 780 S 1600 560, 1900 700 L 1900 1200 L -200 1200 Z"
+          fill="url(#b2${id})" opacity=".85" filter="url(#soft${id})"/>
+    <path d="M-200 520 C 260 300, 640 640, 1040 420 S 1560 160, 1900 260" fill="none" stroke="url(#b3${id})"
+          stroke-width="34" opacity=".55" filter="url(#edge${id})"/>
+    <path d="M-200 600 C 240 400, 640 720, 1060 500 S 1560 260, 1900 340" fill="none" stroke="#9fd8ff"
+          stroke-width="10" opacity=".35" filter="url(#edge${id})"/>
+    <path d="M-200 1000 C 380 820, 820 1060, 1240 880 S 1700 760, 1900 820 L 1900 1200 L -200 1200 Z"
+          fill="#2a0f6b" opacity=".55" filter="url(#soft${id})"/>
+  </svg>`;
+}
+
+function menubar({ main, laptop }) {
+  const menus = main ? "<b>Finder</b><span>File</span><span>Edit</span><span>View</span><span>Go</span><span>Window</span><span>Help</span>"
+              : laptop ? "<b>Finder</b><span>File</span><span>Edit</span>"
+              : "<b>Finder</b><span>File</span><span>Edit</span><span>View</span>";
+  return `<div class="menubar ${main ? "" : "secondary"}">
+    <img class="apple" src="assets/sym-apple.logo.png">${menus}
+    <span class="spacer"></span>${laptop ? '<span class="notch-gap"></span><span class="spacer"></span>' : ""}
+    <img class="pin" src="assets/MenuBarIcon@2x.png"><img src="assets/sym-wifi.png"><img src="assets/sym-battery.100.png">
+    <img src="assets/sym-magnifyingglass.png"><img src="assets/sym-switch.2.png"><span>${laptop ? "9:41" : "Thu 8 Oct&nbsp; 9:41"}</span>
+  </div>`;
+}
+
+function dock() {
+  const tile = name => `<div class="app ${RUNNING.has(name) ? "running" : ""}"><img src="assets/${name}.png"></div>`;
+  return `<div class="dock">${APPS.map(tile).join("")}<div class="sep"></div>${tile("Trash")}</div>`;
+}
+
+function finderWindow(x, y, w, h) {
+  return `<div class="window" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">
+    <div class="bar"><i></i><i></i><i></i><span>Applications</span></div>
+    <div class="side"><p></p><p style="width:60%"></p><p></p><p style="width:50%"></p><p style="width:70%"></p></div>
+    <div class="grid">${"<div></div>".repeat(8)}</div>
+  </div>`;
+}
+
+function monitor(id, x, y, w, h, { main = false, extra = "" } = {}) {
+  const fw = w + 14, fh = h + 14;
+  return `<div class="monitor" style="left:${x}px;top:${y}px;width:${fw}px;height:${fh}px">
+      <div class="neck" style="top:${fh}px"></div><div class="base" style="top:${fh + 72}px"></div>
+      <div class="frame"><div class="screen">${wallpaper(id)}${menubar({ main })}${main ? dock() : ""}${extra}</div></div>
+    </div>`;
+}
+
+function laptop(x, y, w, h) {
+  const fw = w + 16, fh = h + 16;
+  return `<div class="monitor laptop" style="left:${x}px;top:${y}px;width:${fw}px;height:${fh}px">
+      <div class="frame"><div class="screen" style="inset:8px">${wallpaper("l")}${menubar({ laptop: true })}</div>
+      <div class="notch"></div></div>
+      <div class="deck" style="top:${fh}px;left:-26px;right:-26px"></div>
+    </div>`;
+}
+
+// LG on the left, the Odyssey in the center (the main display, with the Dock), PHL on the right, MacBook below.
+const sideW = 440, sideH = 248, midW = 540, midH = 304, gap = 26;
+const total = 2 * (sideW + 14) + (midW + 14) + 2 * gap, startX = (1600 - total) / 2, startY = 34;
+const midX = startX + sideW + 14 + gap, sideY = startY + (midH - sideH) / 2;
+document.body.innerHTML =
+  monitor("a", startX, sideY, sideW, sideH) +
+  monitor("b", midX, startY, midW, midH, { main: true, extra: finderWindow(150, 70, 270, 160) }) +
+  monitor("c", midX + midW + 14 + gap, sideY, sideW, sideH) +
+  laptop(midX + (midW + 14 - 376) / 2, startY + midH + 14 + 112, 360, 225);
+</script>
+</body>
+</html>

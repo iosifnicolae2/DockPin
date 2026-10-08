@@ -110,6 +110,13 @@ public enum LayoutPlanner {
         a.lowerBound < b.upperBound && b.lowerBound < a.upperBound
     }
 
+    /// How long a border two displays share (0 when they only meet at a corner or not at all).
+    static func sharedEdgeLength(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        if a.maxX == b.minX || a.minX == b.maxX { return max(0, min(a.maxY, b.maxY) - max(a.minY, b.minY)) }
+        if a.maxY == b.minY || a.minY == b.maxY { return max(0, min(a.maxX, b.maxX) - max(a.minX, b.minX)) }
+        return 0
+    }
+
     /// Two displays cover the same pixels (merely touching doesn't count).
     static func overlapsInside(_ a: CGRect, _ b: CGRect) -> Bool {
         overlaps(a.minX...a.maxX, b.minX...b.maxX) && overlaps(a.minY...a.maxY, b.minY...b.maxY)
@@ -126,8 +133,18 @@ public enum LayoutPlanner {
         let collides = { (amount: CGFloat) in
             group.contains { g in others.contains { overlapsInside($0, g.offsetBy(dx: vector(amount).dx, dy: vector(amount).dy)) } }
         }
-        // Shorter slide first; on a tie, up (or left).
-        let candidates = abs(towardEnd) < abs(towardStart) ? [towardEnd, towardStart] : [towardStart, towardEnd]
+        // Fewest shared edges first (where the moved displays only touch others at a corner, no part of the
+        // pointer's arrow can show on a screen that isn't next to it in reality); then the shorter slide;
+        // on a tie, up (or left).
+        let contact = { (amount: CGFloat) in
+            group.reduce(CGFloat(0)) { sum, g in
+                let moved = g.offsetBy(dx: vector(amount).dx, dy: vector(amount).dy)
+                return sum + others.reduce(CGFloat(0)) { $0 + sharedEdgeLength(moved, $1) }
+            }
+        }
+        let candidates = [towardStart, towardEnd].sorted { a, b in
+            (contact(a), abs(a), a) < (contact(b), abs(b), b)
+        }
         for amount in candidates where !collides(amount) { return vector(amount) }
         // Both nearest spots are taken: keep sliding the shorter way until the group fits.
         var amount = candidates[0]

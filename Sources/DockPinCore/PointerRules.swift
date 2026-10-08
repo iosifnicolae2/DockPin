@@ -8,25 +8,72 @@ public struct PointerRules {
     let plan: LayoutPlan
     let offsets: [String: CGVector]
     let guarded: [Display]
+    /// The pointer's arrow is drawn right of and below its tip, up to this many points.
+    let cursorSize: CGFloat
 
-    public init(plan: LayoutPlan) {
+    public init(plan: LayoutPlan, cursorSize: CGFloat = 32) {
         self.plan = plan
         self.offsets = plan.offsetByUUID
         self.guarded = LayoutPlanner.freeEdgeDisplays(in: plan.pinned, edge: plan.edge).filter { $0.uuid != plan.targetUUID }
+        self.cursorSize = cursorSize
     }
 
     /// Where the pointer should be instead of `current`, or nil when macOS already put it right.
     /// `previous` is where it was after the last event, `delta` this event's movement.
     public func correction(from previous: CGPoint?, to current: CGPoint, delta: CGVector) -> CGPoint? {
-        let known = previous.flatMap { isContinuous(from: $0, to: current, delta: delta) ? $0 : nil }
-        var replayed = known.flatMap { replayInRealArrangement(from: $0, to: current, delta: delta) } ?? current
+        let start = previous.flatMap { isContinuous(from: $0, to: current, delta: delta) ? $0 : nil } ?? estimatedStart(current, delta)
+        var replayed = replayInRealArrangement(from: start, to: current, delta: delta) ?? current
         // Mouse deltas are whole pixels while the pointer moves in fractions, so a replay that stays on the
         // same display a pixel or so from where macOS put it is rounding, not a real difference.
         if hypot(replayed.x - current.x, replayed.y - current.y) < 2, display(near: replayed) == display(near: current) {
             replayed = current
         }
-        let kept = keepOffDockEdges(replayed)
+        let kept = keepArrowOffMovedNeighbours(keepOffDockEdges(replayed), delta: delta)
         return hypot(kept.x - current.x, kept.y - current.y) >= 0.5 ? kept : nil
+    }
+
+    /// Without a trustworthy previous spot, the move started at `current - delta`, on the display there.
+    private func estimatedStart(_ current: CGPoint, _ delta: CGVector) -> CGPoint {
+        let guess = CGPoint(x: current.x - delta.dx, y: current.y - delta.dy)
+        guard let d = display(near: guess) else { return guess }
+        return clamp(guess, into: d.frame)
+    }
+
+    /// macOS draws the arrow on every display it overlaps. Where a moved display only touches this one in
+    /// the pinned layout (the corner left behind by the slide), that would show part of the arrow on a
+    /// screen that isn't next to it in reality, so keep the arrow clear of it.
+    private func keepArrowOffMovedNeighbours(_ p: CGPoint, delta: CGVector) -> CGPoint {
+        guard let here = display(near: p) else { return p }
+        for other in plan.pinned where other != here && offset(other) != offset(here) {
+            let arrow = CGRect(x: p.x, y: p.y, width: cursorSize, height: cursorSize)
+            guard LayoutPlanner.overlapsInside(arrow, other.frame) else { continue }
+            // Heading for the edge: cross now, at the same height, wherever the real border leads.
+            if let across = crossEarly(p, on: here, delta: delta) { return across }
+            // Otherwise step out of the way, without pushing against the movement.
+            let pushLeft = arrow.maxX - other.frame.minX, pushUp = arrow.maxY - other.frame.minY
+            let left = CGPoint(x: p.x - pushLeft, y: p.y), up = CGPoint(x: p.x, y: p.y - pushUp)
+            if delta.dx > 0 && delta.dy <= 0 { return up }
+            if delta.dy > 0 && delta.dx <= 0 { return left }
+            return pushLeft <= pushUp ? left : up
+        }
+        return p
+    }
+
+    /// The spot just across the edge the move heads for (its main direction), if a display is there in reality.
+    private func crossEarly(_ p: CGPoint, on here: Display, delta: CGVector) -> CGPoint? {
+        let off = offset(here)
+        let realFrame = here.frame.offsetBy(dx: -off.dx, dy: -off.dy)
+        var real = CGPoint(x: p.x - off.dx, y: p.y - off.dy)
+        if abs(delta.dx) >= abs(delta.dy) && delta.dx != 0 {
+            real.x = delta.dx > 0 ? realFrame.maxX : realFrame.minX - 1
+        } else if delta.dy != 0 {
+            real.y = delta.dy > 0 ? realFrame.maxY : realFrame.minY - 1
+        } else {
+            return nil
+        }
+        guard let landing = plan.real.first(where: { $0.uuid != here.uuid && $0.frame.contains(real) }) else { return nil }
+        let o = offset(landing)
+        return CGPoint(x: real.x + o.dx, y: real.y + o.dy)
     }
 
     private func replayInRealArrangement(from previous: CGPoint, to current: CGPoint, delta: CGVector) -> CGPoint? {

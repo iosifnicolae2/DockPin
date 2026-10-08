@@ -56,8 +56,14 @@ final class PointerGuard {
             .min() ?? -1
     }
 
+    /// Crossings (jumps) are kept in the system log so a report can be traced; small nudges aren't.
     private func logMove(_ from: CGPoint, _ to: CGPoint, lagMs: Double) {
-        log.debug("moved pointer \(from.debugDescription, privacy: .public) -> \(to.debugDescription, privacy: .public) [\(self.mode.rawValue, privacy: .public)], \(lagMs, format: .fixed(precision: 2)) ms after the event")
+        let message = "moved pointer \(from.debugDescription) -> \(to.debugDescription) [\(mode.rawValue)], \(String(format: "%.2f", lagMs)) ms after the event"
+        if hypot(to.x - from.x, to.y - from.y) > 50 {
+            log.notice("\(message, privacy: .public)")
+        } else {
+            log.debug("\(message, privacy: .public)")
+        }
     }
 
     // MARK: Event tap (Accessibility)

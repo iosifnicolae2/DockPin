@@ -46,6 +46,16 @@ final class LayoutPlannerTests: XCTestCase {
         XCTAssertEqual(o["L"], CGPoint(x: -1920, y: 0))
     }
 
+    func testSlidePrefersEmptySpaceOverTuckingUnderAnotherDisplay() throws {
+        // Today's desk without the PHL: left would put the laptop under the LG (a long shared edge),
+        // right leaves it touching nothing but a corner, so right wins although it's 192 px longer.
+        let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
+        let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
+        let p = try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .bottom))
+        XCTAssertEqual(origins(p)["B"], CGPoint(x: 1920, y: 1080))
+    }
+
     func testEveryPlanLeavesTheDockEdgeFree() throws {
         for edge in DockEdge.allCases {
             let p = try plan(edge)
@@ -108,6 +118,45 @@ final class PointerRulesTests: XCTestCase {
         let rules = PointerRules(plan: try plan(.left))
         let fixed = rules.correction(from: CGPoint(x: 1, y: 1), to: CGPoint(x: -1, y: -1), delta: CGVector(dx: -2, dy: -2))
         XCTAssertEqual(fixed, CGPoint(x: -1, y: -1080), "crosses the real border onto the LG's top row, as macOS would")
+    }
+
+    // Regression: "sometimes the pointer jumps to the top instead of the matching height". Through the
+    // pinned-only corner, a move with no known previous spot was left to macOS: the LG's bottom row
+    // came out at the Odyssey's top row.
+    func testCornerCrossingWithoutAKnownPreviousSpotKeepsTheHeight() throws {
+        let rules = PointerRules(plan: try plan(.left))
+        // From the LG's bottom row (pinned y -1 = real y 1079) moving right, through the corner.
+        let fixed = rules.correction(from: nil, to: CGPoint(x: 1, y: 1), delta: CGVector(dx: 3, dy: 0))
+        XCTAssertEqual(fixed, CGPoint(x: 1, y: 1079), "the real border leads to the Odyssey's bottom row, not its top")
+    }
+
+    func testCornerCrossingAfterAStaleSpotKeepsTheHeight() throws {
+        let rules = PointerRules(plan: try plan(.left))
+        let fixed = rules.correction(from: CGPoint(x: 900, y: 500), to: CGPoint(x: 1, y: 1), delta: CGVector(dx: 3, dy: 0))
+        XCTAssertEqual(fixed, CGPoint(x: 1, y: 1079))
+    }
+
+    // Regression: "the pointer is sometimes drawn half on each display". Near the LG's bottom-right corner
+    // the arrow spilled onto the Odyssey's top-left corner, which in reality is nowhere near.
+    func testHeadingIntoTheCornerZoneCrossesEarlyAtTheSameHeight() throws {
+        // Moving right along the LG's bottom rows: cross as soon as the arrow would spill, same height.
+        let rules = PointerRules(plan: try plan(.left))
+        XCTAssertEqual(rules.correction(from: CGPoint(x: -14, y: -10), to: CGPoint(x: -10, y: -10), delta: CGVector(dx: 4, dy: 0)),
+                       CGPoint(x: 0, y: 1070))
+    }
+
+    func testOtherwiseTheArrowStepsOutOfTheCornerZone() throws {
+        // Moving down into the LG's bottom-right corner: nothing is below the LG in reality, so step left,
+        // out of the movement's way, until the arrow no longer reaches the Odyssey.
+        let rules = PointerRules(plan: try plan(.left))
+        let fixed = try XCTUnwrap(rules.correction(from: CGPoint(x: -10, y: -14), to: CGPoint(x: -10, y: -10), delta: CGVector(dx: 0, dy: 4)))
+        XCTAssertEqual(fixed, CGPoint(x: -32, y: -10))
+    }
+
+    func testTheArrowMayOverlapARealNeighbour() throws {
+        // LG -> Odyssey is a real border (bottom plan leaves the LG in place): the arrow may span it.
+        let rules = PointerRules(plan: try plan(.bottom))
+        XCTAssertNil(rules.correction(from: CGPoint(x: -20, y: 500), to: CGPoint(x: -10, y: 500), delta: CGVector(dx: 10, dy: 0)))
     }
 
     func testFreeLeftEdgesOfOtherDisplaysAreGuarded() throws {

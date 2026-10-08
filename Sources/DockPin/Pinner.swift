@@ -64,9 +64,18 @@ final class Pinner {
     }
 
     private func use(_ plan: LayoutPlan?) {
+        // Unchanged plan: keep the pointer guard's state (where the pointer was) as it is.
+        if plan != activePlan || pointer.rules == nil {
+            pointer.rules = plan.map { PointerRules(plan: $0, cursorSize: Self.cursorSize()) }
+        }
         activePlan = plan
-        pointer.rules = plan.map(PointerRules.init)
         onChange?()
+    }
+
+    /// The arrow's size, enlarged by Accessibility > Display > Pointer size when set.
+    private static func cursorSize() -> CGFloat {
+        let scale = UserDefaults(suiteName: "com.apple.universalaccess")?.double(forKey: "mouseDriverCursorSize") ?? 0
+        return 32 * max(1, scale)
     }
 
     /// The display picked in the menu if it's connected, else the center one.

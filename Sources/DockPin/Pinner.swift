@@ -29,14 +29,14 @@ final class Pinner {
             return
         }
         guard let target = chooseTarget(in: live), let plan = LayoutPlanner.plan(for: live, targetUUID: target.uuid) else {
-            log.info("no center display among \(live.count) displays; nothing to pin")
+            log.notice("no center display among \(live.count) displays; nothing to pin")
             use(nil)
             return
         }
         save(plan, for: key)
         if !Displays.matches(live, plan.pinned) {
             let ok = Displays.arrange(plan.pinned)
-            log.info("pinned the Dock to \(target.name, privacy: .public): \(ok ? "applied" : "failed", privacy: .public)")
+            log.notice("pinned the Dock to \(target.name, privacy: .public): \(ok ? "applied" : "failed", privacy: .public)")
         }
         use(plan)
     }
@@ -46,7 +46,7 @@ final class Pinner {
         pointer.rules = nil
         guard let plan = activePlan else { return }
         Displays.arrange(plan.real)
-        log.info("restored the real arrangement")
+        log.notice("restored the real arrangement")
     }
 
     private func use(_ plan: LayoutPlan?) {

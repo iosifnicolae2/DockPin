@@ -163,6 +163,20 @@ def menu_bar_template(pt=18, scale=2):
     return img.resize((pt * scale, pt * scale), Image.LANCZOS)
 
 
+def masked_preview(master):
+    """How macOS shows the icon (squircle mask + shadow), for the README and release page."""
+    size, inset = 1024, 100
+    art = master.resize((size - 2 * inset, size - 2 * inset), Image.LANCZOS)
+    m = Image.new("L", art.size, 0)
+    ImageDraw.Draw(m).rounded_rectangle([0, 0, art.size[0] - 1, art.size[1] - 1], radius=art.size[0] * 0.225, fill=255)
+    out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    shadow = Image.new("L", (size, size), 0)
+    shadow.paste(m.point(lambda v: v * 90 // 255), (inset, inset + 12))
+    out.paste((0, 0, 0, 255), (0, 0), shadow.filter(ImageFilter.GaussianBlur(18)))
+    out.paste(art, (inset, inset), m)
+    return out
+
+
 def main():
     master = app_icon()
     with tempfile.TemporaryDirectory() as tmp:
@@ -174,6 +188,7 @@ def main():
                 master.resize((base * scale, base * scale), Image.LANCZOS).save(os.path.join(iconset, name))
         subprocess.run(["iconutil", "-c", "icns", iconset, "-o", os.path.join(RES, "AppIcon.icns")], check=True)
     master.save(os.path.join(RES, "AppIcon-1024.png"))
+    masked_preview(master).save(os.path.join(RES, "AppIcon-preview.png"))
     menu_bar_template(18, 1).save(os.path.join(RES, "MenuBarIcon.png"))
     menu_bar_template(18, 2).save(os.path.join(RES, "MenuBarIcon@2x.png"))
     print("wrote Resources/AppIcon.icns, AppIcon-1024.png, MenuBarIcon(@2x).png")

@@ -1,3 +1,5 @@
+<img src="Resources/AppIcon-preview.png" width="128" alt="DockPin icon">
+
 # DockPin
 
 A menu-bar app that keeps a left-side macOS Dock on the center display of a row of monitors.

@@ -19,7 +19,12 @@ public struct PointerRules {
     /// `previous` is where it was after the last event, `delta` this event's movement.
     public func correction(from previous: CGPoint?, to current: CGPoint, delta: CGVector) -> CGPoint? {
         let known = previous.flatMap { isContinuous(from: $0, to: current, delta: delta) ? $0 : nil }
-        let replayed = known.flatMap { replayInRealArrangement(from: $0, to: current, delta: delta) } ?? current
+        var replayed = known.flatMap { replayInRealArrangement(from: $0, to: current, delta: delta) } ?? current
+        // Mouse deltas are whole pixels while the pointer moves in fractions, so a replay that stays on the
+        // same display a pixel or so from where macOS put it is rounding, not a real difference.
+        if hypot(replayed.x - current.x, replayed.y - current.y) < 2, display(near: replayed) == display(near: current) {
+            replayed = current
+        }
         let kept = keepOffDockEdges(replayed)
         return hypot(kept.x - current.x, kept.y - current.y) >= 0.5 ? kept : nil
     }

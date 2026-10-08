@@ -89,6 +89,12 @@ final class PointerRulesTests: XCTestCase {
         XCTAssertNil(rules.correction(from: CGPoint(x: 6, y: 500), to: CGPoint(x: 0, y: 500), delta: CGVector(dx: -6, dy: 0)))
     }
 
+    func testSubPixelRoundingAlongAnEdgeIsLeftAlone() throws {
+        // A real mouse sliding down the Odyssey's left edge: integer deltas, fractional positions.
+        let rules = PointerRules(plan: try plan(.left))
+        XCTAssertNil(rules.correction(from: CGPoint(x: 1, y: 1010.3), to: CGPoint(x: 0, y: 1011.86), delta: CGVector(dx: -1, dy: 2)))
+    }
+
     func testOrdinaryMovesAndSharedBordersAreLeftAlone() throws {
         let rules = PointerRules(plan: try plan(.left))
         XCTAssertNil(rules.correction(from: CGPoint(x: 903, y: 500), to: CGPoint(x: 900, y: 500), delta: CGVector(dx: -3, dy: 0)))

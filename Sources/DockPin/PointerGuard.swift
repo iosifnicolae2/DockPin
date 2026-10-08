@@ -48,8 +48,16 @@ final class PointerGuard {
         CGVector(dx: Double(event.getIntegerValueField(.mouseEventDeltaX)), dy: Double(event.getIntegerValueField(.mouseEventDeltaY)))
     }
 
+    /// Synthetic events are stamped with uptime, hardware ones with a clock that also counts sleep.
+    private static func msSince(_ timestamp: CGEventTimestamp) -> Double {
+        [CLOCK_UPTIME_RAW, CLOCK_MONOTONIC_RAW]
+            .map { Double(Int64(clock_gettime_nsec_np($0)) - Int64(timestamp)) / 1e6 }
+            .filter { $0 >= 0 }
+            .min() ?? -1
+    }
+
     private func logMove(_ from: CGPoint, _ to: CGPoint, lagMs: Double) {
-        log.notice("moved pointer \(from.debugDescription, privacy: .public) -> \(to.debugDescription, privacy: .public) [\(self.mode.rawValue, privacy: .public)], \(lagMs, format: .fixed(precision: 2)) ms after the event")
+        log.debug("moved pointer \(from.debugDescription, privacy: .public) -> \(to.debugDescription, privacy: .public) [\(self.mode.rawValue, privacy: .public)], \(lagMs, format: .fixed(precision: 2)) ms after the event")
     }
 
     // MARK: Event tap (Accessibility)
@@ -77,8 +85,7 @@ final class PointerGuard {
         if let fixed = correct(location, delta: delta(of: event)) {
             event.location = fixed  // apps (and a dragged window) see the corrected position
             CGWarpMouseCursorPosition(fixed)
-            let lagMs = Double(Int64(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) - Int64(event.timestamp)) / 1e6
-            logMove(location, fixed, lagMs: lagMs)
+            logMove(location, fixed, lagMs: Self.msSince(event.timestamp))
         }
         return Unmanaged.passUnretained(event)
     }
@@ -97,7 +104,7 @@ final class PointerGuard {
 
     private func handleMonitor(_ event: NSEvent) {
         if let warpedAt {
-            log.notice("next move \((event.timestamp - warpedAt) * 1000, format: .fixed(precision: 1)) ms after the warp")
+            log.debug("next move \((event.timestamp - warpedAt) * 1000, format: .fixed(precision: 1)) ms after the warp")
             self.warpedAt = nil
         }
         guard let cg = event.cgEvent, let location = CGEvent(source: nil)?.location,

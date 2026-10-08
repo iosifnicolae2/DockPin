@@ -9,7 +9,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "dock.rectangle", accessibilityDescription: "DockPin")
+        let icon = NSImage(named: "MenuBarIcon") ?? NSImage(systemSymbolName: "dock.rectangle", accessibilityDescription: "DockPin")
+        icon?.isTemplate = true
+        icon?.accessibilityDescription = "DockPin"
+        statusItem.button?.image = icon
         pinner.onChange = { [weak self] in self?.rebuildMenu() }
 
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged),

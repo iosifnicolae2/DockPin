@@ -446,3 +446,31 @@ final class PointerRulesTests: XCTestCase {
                        CGPoint(x: -1000, y: 1078))
     }
 }
+
+/// The LG is main with the laptop below it; an app adds a virtual display, which macOS puts beside the laptop.
+final class VirtualDisplayTests: XCTestCase {
+    let lgMain = Display(uuid: "L", name: "LG", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+    let laptop = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 249, y: 1080, width: 1728, height: 1117))
+    let virtual = Display(uuid: "V", name: "better-tasks my-app", frame: CGRect(x: 1977, y: 1080, width: 1920, height: 1080))
+    let hardware = [HardwareScreen(vendor: 0x1E6D, serial: 102957), HardwareScreen(vendor: 0x4C2D, serial: nil)]
+
+    func testCountingAVirtualDisplayWouldMoveTheCenterToTheLaptop() {
+        XCTAssertEqual(LayoutPlanner.centerDisplay(in: [lgMain, laptop])?.name, "LG")
+        XCTAssertEqual(LayoutPlanner.centerDisplay(in: [lgMain, laptop, virtual])?.name, "Built-in", "why virtual displays are left out")
+    }
+
+    func testAVirtualDisplayIsNotReal() {
+        XCTAssertFalse(HardwareScreen.isReal(builtIn: false, vendor: 0xB7A5, serial: 1, among: hardware))
+        XCTAssertFalse(HardwareScreen.isReal(builtIn: false, vendor: 0x1E6D, serial: 7, among: hardware), "same vendor, another serial")
+    }
+
+    func testMonitorsAndTheLaptopAreReal() {
+        XCTAssertTrue(HardwareScreen.isReal(builtIn: false, vendor: 0x1E6D, serial: 102957, among: hardware))
+        XCTAssertTrue(HardwareScreen.isReal(builtIn: false, vendor: 0x4C2D, serial: 811092018, among: hardware), "hardware without a serial matches by vendor")
+        XCTAssertTrue(HardwareScreen.isReal(builtIn: true, vendor: 0x610, serial: 1, among: hardware))
+    }
+
+    func testUnreadableHardwareKeepsEveryDisplay() {
+        XCTAssertTrue(HardwareScreen.isReal(builtIn: false, vendor: 0xB7A5, serial: 1, among: []))
+    }
+}

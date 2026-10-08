@@ -87,21 +87,36 @@ final class PointerGuard {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
+        if event.getIntegerValueField(.eventSourceUserData) == Self.ownEvent { return Unmanaged.passUnretained(event) }
         switch decide(event.location, event) {
         case .pass:
             return Unmanaged.passUnretained(event)
-        case .move(let p):
-            // Rewriting the event alone doesn't move the pointer (macOS keeps its own position, as the real
-            // captures showed), so put it there too; apps and dragged windows see the rewritten event.
-            warp(p)
-            event.location = p
-            return Unmanaged.passUnretained(event)
-        case .jump(let p):
-            // Another display that isn't next to this one in the pinned layout: passed on, macOS would move
-            // the pointer there along the displays and stop it at their shared corner. Drop the event instead.
-            warp(p)
+        case .move(let p), .jump(let p):
+            // Neither rewriting the event nor warping is enough with a real mouse: a rewrite doesn't move the
+            // pointer, and after a warp macOS catches its own position up later in one big jump (1080 pt
+            // between the moved displays), which its shake-to-locate takes for a shake and enlarges the pointer.
+            // A posted event moves the pointer and macOS's position together, directly, across any displays.
+            post(p, replacing: event)
             return nil
         }
+    }
+
+    /// Tags the events DockPin posts, so its own tap lets them through untouched.
+    private static let ownEvent: Int64 = 0x0D0C_0B1E
+    private let postSource = CGEventSource(stateID: .hidSystemState)
+
+    /// Replaces `original` (dropped by the caller) with the same kind of event at `p`: a move, or a drag with
+    /// the same button, so a dragged window follows.
+    private func post(_ p: CGPoint, replacing original: CGEvent) {
+        let button = CGMouseButton(rawValue: UInt32(original.getIntegerValueField(.mouseEventButtonNumber))) ?? .left
+        guard let event = CGEvent(mouseEventSource: postSource, mouseType: original.type, mouseCursorPosition: p, mouseButton: button) else {
+            return warp(p)
+        }
+        event.flags = original.flags
+        event.setIntegerValueField(.mouseEventDeltaX, value: original.getIntegerValueField(.mouseEventDeltaX))
+        event.setIntegerValueField(.mouseEventDeltaY, value: original.getIntegerValueField(.mouseEventDeltaY))
+        event.setIntegerValueField(.eventSourceUserData, value: Self.ownEvent)
+        event.post(tap: .cghidEventTap)
     }
 
     // MARK: Passive monitor (no permission)

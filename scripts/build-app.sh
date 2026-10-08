@@ -9,13 +9,12 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 app="$root/build/DockPin.app"
 identity="${DOCKPIN_IDENTITY:--}"
 
-if [ "${DOCKPIN_UNIVERSAL:-0}" = 1 ]; then
-    swift build -c release --arch arm64 --arch x86_64 --package-path "$root"
-    binary="$root/.build/apple/Products/Release/DockPin"
-else
-    swift build -c release --package-path "$root"
-    binary="$root/.build/release/DockPin"
-fi
+archs=""
+if [ "${DOCKPIN_UNIVERSAL:-0}" = 1 ]; then archs="--arch arm64 --arch x86_64"; fi
+# shellcheck disable=SC2086 # $archs is a flag list
+swift build -c release --package-path "$root" $archs
+# shellcheck disable=SC2086
+binary="$(swift build -c release --package-path "$root" $archs --show-bin-path)/DockPin"
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"

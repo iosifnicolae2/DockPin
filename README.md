@@ -66,6 +66,9 @@ M5 Pro, moving the pointer 200 times a second:
 - System Settings > Displays shows the moved arrangement while DockPin runs. To change your
   arrangement, quit DockPin, change it, and open DockPin again.
 - The outermost pixel row or column on the other displays' Dock edges can't be reached.
+- Where a moved display meets the center one at a corner, the pointer's arrow would show partly on
+  the wrong screen, so in the last 32 points before that corner the pointer crosses early (same
+  height) or steps aside.
 
 ## Develop
 

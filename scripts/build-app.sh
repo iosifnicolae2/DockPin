@@ -4,9 +4,10 @@
 # Env:
 #   DOCKPIN_IDENTITY     codesign identity (default "-": ad-hoc, for local use only)
 #   DOCKPIN_UNIVERSAL=1  build for arm64 and x86_64
+#   DOCKPIN_OUT          folder for DockPin.app (default build/)
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
-app="$root/build/DockPin.app"
+app="${DOCKPIN_OUT:-$root/build}/DockPin.app"
 identity="${DOCKPIN_IDENTITY:--}"
 
 archs=""

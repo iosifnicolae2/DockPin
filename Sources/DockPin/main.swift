@@ -49,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             if let plan = self.pinner.activePlan, plan.edge != DockPrefs.edge() { self.pinner.reconcile() }
             if self.pinner.pointer.upgradeIfTrusted() { self.rebuildMenu() }
+            let tracing = UserDefaults.standard.bool(forKey: "traceMoves")
+            if tracing != (self.pinner.pointer.trace != nil) { self.pinner.pointer.trace = tracing ? MoveTrace() : nil }
         }
     }
 

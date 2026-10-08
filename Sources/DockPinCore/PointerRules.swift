@@ -11,6 +11,13 @@ public struct PointerRules {
     /// The pointer's arrow is drawn right of and below its tip, up to this many points.
     let cursorSize: CGFloat
 
+    static let largestHandMove: CGFloat = 300
+
+    /// True when both points are on the same display (of the pinned layout).
+    public func onSameDisplay(_ a: CGPoint, _ b: CGPoint) -> Bool {
+        display(near: a) == display(near: b)
+    }
+
     public init(plan: LayoutPlan, cursorSize: CGFloat = 32) {
         self.plan = plan
         self.offsets = plan.offsetByUUID
@@ -21,6 +28,10 @@ public struct PointerRules {
     /// Where the pointer should be instead of `current`, or nil when macOS already put it right.
     /// `previous` is where it was after the last event, `delta` this event's movement.
     public func correction(from previous: CGPoint?, to current: CGPoint, delta: CGVector) -> CGPoint? {
+        // No hand moves the pointer this far in one event: it's macOS catching up after a warp (its event
+        // carries the whole jump as its delta) or another app moving the pointer. Replaying it would land
+        // somewhere random, so leave such events alone.
+        guard hypot(delta.dx, delta.dy) <= Self.largestHandMove else { return nil }
         let start = previous.flatMap { isContinuous(from: $0, to: current, delta: delta) ? $0 : nil } ?? estimatedStart(current, delta)
         var replayed = replayInRealArrangement(from: start, to: current, delta: delta) ?? current
         // Mouse deltas are whole pixels while the pointer moves in fractions, so a replay that stays on the
@@ -30,6 +41,25 @@ public struct PointerRules {
         }
         let kept = keepArrowOffMovedNeighbours(keepOffDockEdges(replayed), delta: delta)
         return hypot(kept.x - current.x, kept.y - current.y) >= 0.5 ? kept : nil
+    }
+
+    /// The part of the arrow that, on a real border, would show on the neighbouring screen but has nowhere to
+    /// go in the pinned layout (the neighbour was moved). `frame` is where that piece belongs (global, pinned
+    /// coordinates); `arrowOrigin` is where the whole arrow image would start, so the piece can be cut from it.
+    public func hiddenArrowPart(at p: CGPoint, arrow: CGSize, hotSpot: CGPoint) -> (frame: CGRect, arrowOrigin: CGPoint)? {
+        guard let here = display(near: p) else { return nil }
+        let arrowRect = CGRect(x: p.x - hotSpot.x, y: p.y - hotSpot.y, width: arrow.width, height: arrow.height)
+        guard !here.frame.contains(arrowRect) else { return nil }
+        let offHere = offset(here)
+        let realArrow = arrowRect.offsetBy(dx: -offHere.dx, dy: -offHere.dy)
+        for neighbour in plan.real where neighbour.uuid != here.uuid {
+            let off = offset(neighbour)
+            guard off != offHere else { continue }  // a border both layouts share: macOS draws it
+            let part = realArrow.intersection(neighbour.frame)
+            guard !part.isNull, part.width > 0, part.height > 0 else { continue }
+            return (part.offsetBy(dx: off.dx, dy: off.dy), CGPoint(x: realArrow.minX + off.dx, y: realArrow.minY + off.dy))
+        }
+        return nil
     }
 
     /// Without a trustworthy previous spot, the move started at `current - delta`, on the display there.

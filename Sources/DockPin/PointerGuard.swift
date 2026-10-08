@@ -37,12 +37,17 @@ final class PointerGuard {
         return true
     }
 
-    private func correct(_ location: CGPoint, delta: CGVector) -> CGPoint? {
+    private func correct(_ location: CGPoint, delta: CGVector, event: CGEvent? = nil) -> CGPoint? {
         guard let rules else { return nil }
+        let before = previous
         let fixed = rules.correction(from: previous, to: location, delta: delta)
         previous = fixed ?? location
+        if let trace { trace.record(event: event, location: location, delta: delta, previous: before, fixed: fixed) }
         return fixed
     }
+
+    /// Set from `defaults write io.bringes.DockPin traceMoves -bool YES`: every move goes to a file.
+    var trace: MoveTrace?
 
     private func delta(of event: CGEvent) -> CGVector {
         CGVector(dx: Double(event.getIntegerValueField(.mouseEventDeltaX)), dy: Double(event.getIntegerValueField(.mouseEventDeltaY)))
@@ -88,13 +93,25 @@ final class PointerGuard {
             return Unmanaged.passUnretained(event)
         }
         let location = event.location
-        if let fixed = correct(location, delta: delta(of: event)) {
-            event.location = fixed  // apps (and a dragged window) see the corrected position
-            CGWarpMouseCursorPosition(fixed)
-            logMove(location, fixed, lagMs: Self.msSince(event.timestamp))
+        guard let fixed = correct(location, delta: delta(of: event), event: event), let rules else {
+            tail.update(pointer: location, rules: rules)
+            return Unmanaged.passUnretained(event)
         }
-        return Unmanaged.passUnretained(event)
+        logMove(location, fixed, lagMs: Self.msSince(event.timestamp))
+        tail.update(pointer: fixed, rules: rules)
+        if rules.onSameDisplay(location, fixed) {
+            event.location = fixed  // a small fix on the same display: apps and dragged windows see it
+            return Unmanaged.passUnretained(event)
+        }
+        // A crossing to a display the pinned layout doesn't put next to this one. Passed on, macOS would move
+        // the pointer there along the displays and stop it at their shared corner, so drop this event and
+        // put the pointer there directly; re-associating keeps the hardware position in step.
+        CGWarpMouseCursorPosition(fixed)
+        CGAssociateMouseAndMouseCursorPosition(1)
+        return nil
     }
+
+    private let tail = CursorTail()
 
     // MARK: Passive monitor (no permission)
 
@@ -113,8 +130,12 @@ final class PointerGuard {
             log.debug("next move \((event.timestamp - warpedAt) * 1000, format: .fixed(precision: 1)) ms after the warp")
             self.warpedAt = nil
         }
-        guard let cg = event.cgEvent, let location = CGEvent(source: nil)?.location,
-              let fixed = correct(location, delta: delta(of: cg)) else { return }
+        guard let cg = event.cgEvent, let location = CGEvent(source: nil)?.location else { return }
+        guard let fixed = correct(location, delta: delta(of: cg), event: cg) else {
+            tail.update(pointer: location, rules: rules)
+            return
+        }
+        tail.update(pointer: fixed, rules: rules)
         CGWarpMouseCursorPosition(fixed)
         CGAssociateMouseAndMouseCursorPosition(1)
         warpedAt = ProcessInfo.processInfo.systemUptime

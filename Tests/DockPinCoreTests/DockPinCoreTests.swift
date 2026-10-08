@@ -80,6 +80,36 @@ final class LayoutPlannerTests: XCTestCase {
     }
 }
 
+/// Events from the user's real-mouse capture (~/Library/Logs/DockPin/moves.log), on today's three displays.
+final class RealCaptureTests: XCTestCase {
+    var rules: PointerRules!
+
+    override func setUpWithError() throws {
+        let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
+        let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
+        rules = PointerRules(plan: try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .left)))
+    }
+
+    func testARealMouseCrossingAtTheEdgeLandsAtTheSameHeight() {
+        // 25981.4: sub-pixel motion, integer delta -1 at the Odyssey's left edge.
+        XCTAssertEqual(rules.correction(from: CGPoint(x: 0.39, y: 806.10), to: CGPoint(x: 0.16, y: 806.10), delta: CGVector(dx: -1, dy: 0)),
+                       CGPoint(x: -0.61, y: -273.90))
+    }
+
+    // Regression: after a crossing, macOS sends its own catch-up event carrying the whole jump as its delta.
+    // Replayed as a hand movement it sent the pointer to the LG's top row (25988.1) ...
+    func testTheCatchUpEventAfterAWarpIsNotReplayedToTheTop() {
+        XCTAssertNil(rules.correction(from: CGPoint(x: 0, y: 806.10), to: CGPoint(x: 0, y: 0), delta: CGVector(dx: 0, dy: -806)))
+    }
+
+    // ... or onto another screen: the LG's corner zone (26566.1) and then the laptop (26576.5).
+    func testTheCatchUpEventAfterAWarpIsNotReplayedOntoAnotherScreen() {
+        XCTAssertNil(rules.correction(from: CGPoint(x: -0.02, y: -1073.55), to: CGPoint(x: 0.23, y: 6.23), delta: CGVector(dx: 0, dy: 1080)))
+        XCTAssertNil(rules.correction(from: CGPoint(x: 0, y: 1079.46), to: CGPoint(x: 0.23, y: 1079), delta: CGVector(dx: 30, dy: 1079)))
+    }
+}
+
 final class PointerRulesTests: XCTestCase {
     func testLeavingTheCenterLeftwardsLandsOnTheLGAtTheSameHeight() throws {
         let rules = PointerRules(plan: try plan(.left))
@@ -151,6 +181,22 @@ final class PointerRulesTests: XCTestCase {
         let rules = PointerRules(plan: try plan(.left))
         let fixed = try XCTUnwrap(rules.correction(from: CGPoint(x: -10, y: -14), to: CGPoint(x: -10, y: -10), delta: CGVector(dx: 0, dy: 4)))
         XCTAssertEqual(fixed, CGPoint(x: -32, y: -10))
+    }
+
+    // Regression: "half of the cursor is cut off at the border". Just left of the moved border the arrow
+    // overhangs into empty space; the piece the Odyssey would show on a real border is drawn there instead.
+    func testTheArrowPieceCutOffAtAMovedBorderBelongsOnTheRealNeighbour() throws {
+        let rules = PointerRules(plan: try plan(.left))
+        let piece = try XCTUnwrap(rules.hiddenArrowPart(at: CGPoint(x: -6, y: -540), arrow: CGSize(width: 20, height: 30), hotSpot: CGPoint(x: 2, y: 2)))
+        XCTAssertEqual(piece.frame, CGRect(x: 0, y: 538, width: 12, height: 30), "on the Odyssey, at the LG's real height")
+        XCTAssertEqual(piece.arrowOrigin, CGPoint(x: -8, y: 538))
+    }
+
+    func testNoPieceWhenTheArrowFitsOrTheBorderIsReal() throws {
+        let rules = PointerRules(plan: try plan(.left))
+        XCTAssertNil(rules.hiddenArrowPart(at: CGPoint(x: -500, y: -540), arrow: CGSize(width: 20, height: 30), hotSpot: .zero), "fits")
+        XCTAssertNil(rules.hiddenArrowPart(at: CGPoint(x: 1910, y: 500), arrow: CGSize(width: 20, height: 30), hotSpot: .zero),
+                     "Odyssey -> PHL is a real border; macOS draws both halves")
     }
 
     func testTheArrowMayOverlapARealNeighbour() throws {

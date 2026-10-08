@@ -104,6 +104,7 @@ The icon and the picture above are drawn by `scripts/make-icon.py` and `scripts/
 1. Bump `CFBundleShortVersionString` in `Resources/Info.plist` and add `docs/releases/v<version>.md`.
 2. `scripts/audit.sh` must print "no sensitive matches".
 3. Push the tag `v<version>`. `.github/workflows/release.yml` tests, signs with Developer ID,
-   notarizes and publishes `DockPin-<version>.zip` with its `.sha256`; its header lists the secrets
+   notarizes and publishes `DockPin-<version>.zip` with its `.sha256`, plus the same zip as `DockPin.zip`
+   so `releases/latest/download/DockPin.zip` always points to the newest; its header lists the secrets
    it needs. `scripts/release.sh` does the same locally into `dist/`, using the keychain's
    Developer ID certificate and the `DockPin-notary` notarytool profile.

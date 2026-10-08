@@ -1,5 +1,6 @@
 #!/bin/sh
-# Builds a signed, notarized, stapled dist/DockPin-<version>.zip (+ .sha256) ready to attach to a GitHub release.
+# Builds a signed, notarized, stapled dist/DockPin-<version>.zip (+ .sha256) ready to attach to a GitHub release,
+# plus dist/DockPin.zip, the same file under a stable name so .../releases/latest/download/DockPin.zip always works.
 # Usage: scripts/release.sh            (version = CFBundleShortVersionString in Resources/Info.plist)
 # Needs, in the keychain (never in this repo):
 #   - a "Developer ID Application" certificate (DOCKPIN_IDENTITY overrides which one)
@@ -16,7 +17,7 @@ identity="${DOCKPIN_IDENTITY:-$(security find-identity -v -p codesigning | sed -
 dist="$root/dist"
 zip="$dist/DockPin-$version.zip"
 mkdir -p "$dist"
-rm -f "$zip" "$zip.sha256"
+rm -f "$zip" "$zip.sha256" "$dist/DockPin.zip"
 
 DOCKPIN_IDENTITY="$identity" DOCKPIN_UNIVERSAL=1 "$root/scripts/build-app.sh"
 app="$root/build/DockPin.app"
@@ -30,4 +31,5 @@ xcrun stapler staple "$app"
 spctl --assess --type execute --verbose=2 "$app"
 ditto -c -k --keepParent "$app" "$zip"
 (cd "$dist" && shasum -a 256 "DockPin-$version.zip" > "DockPin-$version.zip.sha256")
-echo "release ready: $zip"
+cp "$zip" "$dist/DockPin.zip"
+echo "release ready: $zip (and $dist/DockPin.zip)"

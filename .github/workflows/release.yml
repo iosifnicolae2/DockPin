@@ -1,4 +1,5 @@
-# Pushing a tag like v1.0.0 builds, signs, notarizes and publishes DockPin-<version>.zip as a GitHub release.
+# Pushing a tag like v1.0.0 builds, signs, notarizes and publishes DockPin-<version>.zip (+ .sha256 and a stable-named
+# DockPin.zip) as a GitHub release; if the release already exists, it replaces those assets.
 # Repository secrets it needs (Settings > Secrets and variables > Actions):
 #   DEVELOPER_ID_P12_BASE64   base64 of the "Developer ID Application" certificate + key exported as .p12
 #   DEVELOPER_ID_P12_PASSWORD password of that .p12
@@ -64,5 +65,9 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           notes="docs/releases/$GITHUB_REF_NAME.md"
-          gh release create "$GITHUB_REF_NAME" "dist/DockPin-$version.zip" "dist/DockPin-$version.zip.sha256" \
-            --title "DockPin $version" --notes-file "$notes"
+          assets="dist/DockPin-$version.zip dist/DockPin-$version.zip.sha256 dist/DockPin.zip"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" $assets --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" $assets --title "DockPin $version" --notes-file "$notes"
+          fi

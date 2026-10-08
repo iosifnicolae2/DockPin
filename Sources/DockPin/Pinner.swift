@@ -15,6 +15,17 @@ final class Pinner {
         activePlan.flatMap { plan in plan.pinned.first { $0.uuid == plan.targetUUID }?.name }
     }
 
+    /// The display picked in the menu, or nil for "the center display".
+    var chosenTargetName: String? {
+        get { defaults.string(forKey: "targetDisplay") }
+        set {
+            defaults.set(newValue, forKey: "targetDisplay")
+            reconcile()
+        }
+    }
+
+    var displayNames: [String] { (activePlan?.real ?? Displays.current()).map(\.name) }
+
     func start() {
         pointer.start()
         reconcile()
@@ -58,11 +69,9 @@ final class Pinner {
         onChange?()
     }
 
+    /// The display picked in the menu if it's connected, else the center one.
     private func chooseTarget(in displays: [Display]) -> Display? {
-        let wanted = defaults.string(forKey: "targetDisplay") ?? defaults.string(forKey: "lastTarget")
-        let target = displays.first { $0.name == wanted } ?? LayoutPlanner.centerDisplay(in: displays)
-        if let target { defaults.set(target.name, forKey: "lastTarget") }
-        return target
+        displays.first { $0.name == chosenTargetName } ?? LayoutPlanner.centerDisplay(in: displays)
     }
 
     private func savedPlan(for key: String) -> LayoutPlan? {

@@ -22,6 +22,10 @@ final class LayoutPlannerTests: XCTestCase {
         XCTAssertEqual(LayoutPlanner.centerDisplay(in: desk)?.uuid, "O")
     }
 
+    func testWithOneSideUnpluggedTheCenterIsTheBestConnectedDisplay() {
+        XCTAssertEqual(LayoutPlanner.centerDisplay(in: [builtIn, odyssey, lg])?.uuid, "O", "touches the LG and the laptop")
+    }
+
     func testLeftDockLiftsTheLeftDisplayAboveTheCenter() throws {
         let o = origins(try plan(.left))
         XCTAssertEqual(o["O"], CGPoint(x: 0, y: 0), "the center becomes main")

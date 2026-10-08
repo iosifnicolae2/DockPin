@@ -53,7 +53,7 @@ let traceFile = ProcessInfo.processInfo.environment["DOCKPIN_TRACE"].flatMap { p
 }
 func trace(_ p: CGPoint) { traceFile?.write("\(p.x) \(p.y)\n".data(using: .utf8)!) }
 
-func place(_ p: CGPoint) { CGWarpMouseCursorPosition(p); usleep(150_000); traceFile?.write("jump\n".data(using: .utf8)!); trace(p) }
+func place(_ p: CGPoint) { CGWarpMouseCursorPosition(p); usleep(300_000); traceFile?.write("jump\n".data(using: .utf8)!); trace(p) }
 
 /// The display that reserves room for the Dock on `edge` (its visible frame is inset there).
 func dockDisplayUUID(edge: String) -> String? {

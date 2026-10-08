@@ -47,11 +47,20 @@ public struct LayoutPlan: Equatable, Codable {
 }
 
 public enum LayoutPlanner {
-    /// The display the user means by "center": one with a display touching it on both its left and right side.
+    /// The display the user means by "center": one with a display touching it on both its left and right
+    /// side; failing that (say one side's monitor is unplugged), the one touching the most displays.
     public static func centerDisplay(in displays: [Display]) -> Display? {
-        displays.first { d in
+        let between = displays.first { d in
             displays.contains { touches(d.frame, on: .left, $0.frame) } && displays.contains { touches(d.frame, on: .right, $0.frame) }
         }
+        return between ?? displays.max { neighbourCount($0, in: displays) < neighbourCount($1, in: displays) }
+    }
+
+    static func neighbourCount(_ d: Display, in displays: [Display]) -> Int {
+        displays.filter { o in
+            o != d && (touches(d.frame, on: .left, o.frame) || touches(d.frame, on: .right, o.frame)
+                || touches(d.frame, on: .bottom, o.frame) || touches(o.frame, on: .bottom, d.frame))
+        }.count
     }
 
     /// macOS only puts the Dock on a display whose whole Dock edge borders no other display.

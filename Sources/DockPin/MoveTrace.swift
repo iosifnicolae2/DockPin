@@ -2,13 +2,16 @@ import CoreGraphics
 import DockPinCore
 import Foundation
 
-/// Diagnostic capture of every pointer move, for reproducing a crossing that went wrong with a real hand:
-/// `defaults write io.bringes.DockPin traceMoves -bool YES`, move, then read ~/Library/Logs/DockPin/moves.log.
-/// One line per event: ms, event type, event location, live pointer, delta (int and fractional),
-/// what DockPin did (pass, move or jump) and where to.
+/// Diagnostic capture of every pointer move, for reproducing a crossing that went wrong with a real hand.
+/// Off unless `defaults write io.bringes.DockPin traceMoves -bool YES`; then read ~/Library/Logs/DockPin/moves.log
+/// (scripts/analyze-moves.py). One line per event: ms, event type, event location, live pointer, delta (int and
+/// fractional), what DockPin did (pass, move or jump) and where to. Lines are buffered and written off the
+/// main thread, so tracing doesn't slow the pointer.
 final class MoveTrace {
     private let handle: FileHandle
     private let start = ProcessInfo.processInfo.systemUptime
+    private let disk = DispatchQueue(label: "io.bringes.DockPin.trace")
+    private var buffer: [String] = []
 
     init?() {
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/DockPin")
@@ -18,8 +21,11 @@ final class MoveTrace {
         guard let handle = try? FileHandle(forWritingTo: file) else { return nil }
         handle.seekToEndOfFile()
         self.handle = handle
-        write(String(format: "# started at %.3f (Unix time); columns: ms type x y live_x live_y dx dy fdx fdy action to_x to_y", Date().timeIntervalSince1970))
+        buffer.append(String(format: "# started at %.3f (Unix time); columns: ms type x y live_x live_y dx dy fdx fdy action to_x to_y",
+                             Date().timeIntervalSince1970))
     }
+
+    deinit { flush() }
 
     func record(event: CGEvent?, location: CGPoint, delta: CGVector, action: PointerTracker.Action) {
         let live = CGEvent(source: nil)?.location ?? .zero
@@ -32,12 +38,17 @@ final class MoveTrace {
         case .move(let p): ("move", p)
         case .jump(let p): ("jump", p)
         }
-        write(String(format: "%.1f %d ", ms, Int(event?.type.rawValue ?? 0))
-              + [location.x, location.y, live.x, live.y, delta.dx, delta.dy, fdx, fdy].map { f($0) }.joined(separator: " ")
-              + " \(kind) \(f(to?.x)) \(f(to?.y))")
+        buffer.append(String(format: "%.1f %d ", ms, Int(event?.type.rawValue ?? 0))
+                      + [location.x, location.y, live.x, live.y, delta.dx, delta.dy, fdx, fdy].map { f($0) }.joined(separator: " ")
+                      + " \(kind) \(f(to?.x)) \(f(to?.y))")
+        if buffer.count >= 200 { flush() }
     }
 
-    private func write(_ line: String) {
-        handle.write((line + "\n").data(using: .utf8)!)
+    func flush() {
+        guard !buffer.isEmpty else { return }
+        let data = (buffer.joined(separator: "\n") + "\n").data(using: .utf8)!
+        buffer.removeAll(keepingCapacity: true)
+        let handle = self.handle
+        disk.async { handle.write(data) }
     }
 }

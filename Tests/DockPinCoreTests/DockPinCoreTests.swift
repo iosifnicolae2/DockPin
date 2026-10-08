@@ -57,17 +57,17 @@ final class LayoutPlannerTests: XCTestCase {
     }
 
     func testTheBridgeLetsMacOSFollowAJumpAcrossInAStraightLine() throws {
-        // Left Dock: the LG shares 64 pt of the Odyssey's top edge instead of a bare corner,
+        // Left Dock: the LG shares 320 pt of the Odyssey's top edge instead of a bare corner,
         // and still leaves the Odyssey's left edge free.
         let left = try XCTUnwrap(LayoutPlanner.plan(for: desk, targetUUID: "O", edge: .left))
-        XCTAssertEqual(origins(left)["L"], CGPoint(x: -1856, y: -1080))
+        XCTAssertEqual(origins(left)["L"], CGPoint(x: -1600, y: -1080))
         XCTAssertTrue(LayoutPlanner.freeEdgeDisplays(in: left.pinned, edge: .left).contains { $0.uuid == "O" })
-        // Bottom Dock without the PHL: the laptop shares 64 pt of the Odyssey's right edge.
+        // Bottom Dock without the PHL: the laptop shares 320 pt of the Odyssey's right edge.
         let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
         let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
         let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
         let bottom = try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .bottom))
-        XCTAssertEqual(origins(bottom)["B"], CGPoint(x: 1920, y: 1016))
+        XCTAssertEqual(origins(bottom)["B"], CGPoint(x: 1920, y: 760))
         XCTAssertTrue(LayoutPlanner.freeEdgeDisplays(in: bottom.pinned, edge: .bottom).contains { $0.uuid == "O" })
     }
 

@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if self.pinner.pointer.upgradeIfTrusted() { self.rebuildMenu() }
             let tracing = UserDefaults.standard.bool(forKey: "traceMoves")
             if tracing != (self.pinner.pointer.trace != nil) { self.pinner.pointer.trace = tracing ? MoveTrace() : nil }
+            self.pinner.pointer.trace?.flush()
         }
     }
 

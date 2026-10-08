@@ -11,7 +11,7 @@ public struct PointerRules {
     /// The pointer's arrow is drawn right of and below its tip, up to this many points.
     let cursorSize: CGFloat
 
-    static let largestHandMove: CGFloat = 300
+    public static let largestHandMove: CGFloat = 300
 
     /// Where macOS would leave a move from `from` that ends at `p`: on a display there, else stopped at the
     /// edge of the display it started on.
@@ -68,6 +68,16 @@ public struct PointerRules {
             return (part.offsetBy(dx: off.dx, dy: off.dy), CGPoint(x: realArrow.minX + off.dx, y: realArrow.minY + off.dy))
         }
         return nil
+    }
+
+    /// The strip along the edge of the display that holds `piece`, `depth` deep, where arrow pieces for that
+    /// border are drawn (so one fixed overlay window per border serves every pointer position).
+    public func borderStrip(containing piece: CGRect, depth: CGFloat) -> CGRect? {
+        guard let d = plan.pinned.first(where: { $0.frame.intersects(piece.insetBy(dx: 0.5, dy: 0.5)) })?.frame else { return nil }
+        if piece.minX <= d.minX + 0.5 { return CGRect(x: d.minX, y: d.minY, width: depth, height: d.height) }
+        if piece.maxX >= d.maxX - 0.5 { return CGRect(x: d.maxX - depth, y: d.minY, width: depth, height: d.height) }
+        if piece.minY <= d.minY + 0.5 { return CGRect(x: d.minX, y: d.minY, width: d.width, height: depth) }
+        return CGRect(x: d.minX, y: d.maxY - depth, width: d.width, height: depth)
     }
 
     /// Without a trustworthy previous spot, the move started at `current - delta`, on the display there.

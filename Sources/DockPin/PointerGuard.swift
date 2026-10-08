@@ -12,7 +12,10 @@ final class PointerGuard {
     enum Mode: String { case tap, monitor }
 
     var rules: PointerRules? {
-        didSet { tracker = rules.map(PointerTracker.init) }
+        didSet {
+            tracker = rules.map(PointerTracker.init)
+            tail.reset()
+        }
     }
     private(set) var mode = Mode.monitor
     private var tracker: PointerTracker?
@@ -80,6 +83,7 @@ final class PointerGuard {
 
     private func handleTap(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            log.notice("event tap disabled by macOS (\(type == .tapDisabledByTimeout ? "too slow" : "user input", privacy: .public)); re-enabling")
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
@@ -87,7 +91,10 @@ final class PointerGuard {
         case .pass:
             return Unmanaged.passUnretained(event)
         case .move(let p):
-            event.location = p  // same display: apps and dragged windows see the corrected position
+            // Rewriting the event alone doesn't move the pointer (macOS keeps its own position, as the real
+            // captures showed), so put it there too; apps and dragged windows see the rewritten event.
+            warp(p)
+            event.location = p
             return Unmanaged.passUnretained(event)
         case .jump(let p):
             // Another display that isn't next to this one in the pinned layout: passed on, macOS would move

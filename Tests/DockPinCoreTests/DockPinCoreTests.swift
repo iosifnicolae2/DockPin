@@ -10,7 +10,7 @@ let phl = Display(uuid: "P", name: "PHL", frame: CGRect(x: 1823, y: -1080, width
 let desk = [builtIn, odyssey, lg, phl]
 
 func plan(_ edge: DockEdge) throws -> LayoutPlan {
-    try XCTUnwrap(LayoutPlanner.plan(for: desk, targetUUID: "O", edge: edge))
+    try XCTUnwrap(LayoutPlanner.plan(for: desk, targetUUID: "O", edge: edge, bridge: 0))
 }
 
 func origins(_ plan: LayoutPlan) -> [String: CGPoint] {
@@ -52,8 +52,29 @@ final class LayoutPlannerTests: XCTestCase {
         let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
         let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
         let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
-        let p = try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .bottom))
+        let p = try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .bottom, bridge: 0))
         XCTAssertEqual(origins(p)["B"], CGPoint(x: 1920, y: 1080))
+    }
+
+    func testTheBridgeLetsMacOSFollowAJumpAcrossInAStraightLine() throws {
+        // Left Dock: the LG shares 64 pt of the Odyssey's top edge instead of a bare corner,
+        // and still leaves the Odyssey's left edge free.
+        let left = try XCTUnwrap(LayoutPlanner.plan(for: desk, targetUUID: "O", edge: .left))
+        XCTAssertEqual(origins(left)["L"], CGPoint(x: -1856, y: -1080))
+        XCTAssertTrue(LayoutPlanner.freeEdgeDisplays(in: left.pinned, edge: .left).contains { $0.uuid == "O" })
+        // Bottom Dock without the PHL: the laptop shares 64 pt of the Odyssey's right edge.
+        let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
+        let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
+        let bottom = try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .bottom))
+        XCTAssertEqual(origins(bottom)["B"], CGPoint(x: 1920, y: 1016))
+        XCTAssertTrue(LayoutPlanner.freeEdgeDisplays(in: bottom.pinned, edge: .bottom).contains { $0.uuid == "O" })
+    }
+
+    func testNoBridgeWhereItWouldLandOnAnotherDisplay() throws {
+        // With the PHL connected, nudging the laptop up would put it on the PHL.
+        let bottom = try XCTUnwrap(LayoutPlanner.plan(for: desk, targetUUID: "O", edge: .bottom))
+        XCTAssertEqual(origins(bottom)["B"], CGPoint(x: 1920, y: 1080))
     }
 
     func testEveryPlanLeavesTheDockEdgeFree() throws {
@@ -65,7 +86,7 @@ final class LayoutPlannerTests: XCTestCase {
 
     func testNothingToMoveWhenTheEdgeIsAlreadyFree() throws {
         let p = try plan(.left)
-        let again = try XCTUnwrap(LayoutPlanner.plan(for: p.pinned, targetUUID: "O", edge: .left))
+        let again = try XCTUnwrap(LayoutPlanner.plan(for: p.pinned, targetUUID: "O", edge: .left, bridge: 0))
         XCTAssertEqual(again.pinned, p.pinned)
     }
 
@@ -75,7 +96,7 @@ final class LayoutPlannerTests: XCTestCase {
         let target = Display(uuid: "T", name: "T", frame: CGRect(x: 0, y: 0, width: 1000, height: 1000))
         let below = Display(uuid: "U", name: "U", frame: CGRect(x: 150, y: 1000, width: 800, height: 600))
         let right = Display(uuid: "R", name: "R", frame: CGRect(x: 1000, y: 500, width: 1000, height: 1000))
-        let p = try XCTUnwrap(LayoutPlanner.plan(for: [target, below, right], targetUUID: "T", edge: .bottom))
+        let p = try XCTUnwrap(LayoutPlanner.plan(for: [target, below, right], targetUUID: "T", edge: .bottom, bridge: 0))
         XCTAssertEqual(origins(p)["U"], CGPoint(x: -800, y: 1000))
     }
 }
@@ -88,7 +109,7 @@ final class RealCaptureTests: XCTestCase {
         let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
         let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
         let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
-        rules = PointerRules(plan: try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .left)))
+        rules = PointerRules(plan: try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .left, bridge: 0)))
     }
 
     func testARealMouseCrossingAtTheEdgeLandsAtTheSameHeight() {
@@ -107,6 +128,70 @@ final class RealCaptureTests: XCTestCase {
     func testTheCatchUpEventAfterAWarpIsNotReplayedOntoAnotherScreen() {
         XCTAssertNil(rules.correction(from: CGPoint(x: -0.02, y: -1073.55), to: CGPoint(x: 0.23, y: 6.23), delta: CGVector(dx: 0, dy: 1080)))
         XCTAssertNil(rules.correction(from: CGPoint(x: 0, y: 1079.46), to: CGPoint(x: 0.23, y: 1079), delta: CGVector(dx: 30, dy: 1079)))
+    }
+}
+
+/// Second real-mouse capture, replayed event by event (ms, location, integer delta) through the tracker.
+final class RealCaptureTrackerTests: XCTestCase {
+    var tracker: PointerTracker!
+    let lg = CGRect(x: -1920, y: -1080, width: 1920, height: 1080)
+
+    override func setUpWithError() throws {
+        let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
+        let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
+        let plan = try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .left, bridge: 0))
+        tracker = PointerTracker(rules: PointerRules(plan: plan))
+    }
+
+    func feed(_ events: [(Double, CGFloat, CGFloat, CGFloat, CGFloat)]) -> [PointerTracker.Action] {
+        events.map { ms, x, y, dx, dy in tracker.handle(location: CGPoint(x: x, y: y), delta: CGVector(dx: dx, dy: dy), time: ms / 1000) }
+    }
+
+    func spot(_ a: PointerTracker.Action) -> CGPoint? {
+        switch a {
+        case .pass: return nil
+        case .move(let p), .jump(let p): return p
+        }
+    }
+
+    // Regression: "on fast moves it sometimes doesn't switch screens". After the jump to the LG, macOS kept
+    // reporting the pointer at the Odyssey's edge (its old position) for ~40 ms; passed on, those moves
+    // pulled the pointer back across, again and again.
+    func testStaleMovesAfterAJumpDoNotPullThePointerBack() {
+        let actions = feed([
+            (674262.0, 6.77, 572.54, -1, 0), (674267.6, 0.00, 572.54, -9, 0),           // crossing
+            (674278.4, 0.00, 572.54, -2, 0), (674289.2, 0.00, 572.54, 0, 0),            // stale
+            (674292.8, 0.00, 572.54, -2, 0), (674293.3, 0.00, 572.54, -3, 0),
+            (674293.8, 0.00, 572.54, -1, 0), (674295.0, 0.00, 572.54, -1, 0),
+            (674302.7, 0.00, 572.54, -1, 0), (674307.1, 0.00, 572.54, 0, 0),
+        ])
+        XCTAssertEqual(actions[0], .pass)
+        guard case .jump(let landing) = actions[1] else { return XCTFail("expected a jump, got \(actions[1])") }
+        XCTAssertTrue(lg.contains(landing), "jumped onto the LG: \(landing)")
+        for a in actions.dropFirst(2) {
+            guard let p = spot(a) else { return XCTFail("a stale move was passed on: it would pull the pointer back") }
+            XCTAssertTrue(lg.contains(p), "stays on the LG: \(p)")
+            XCTAssertEqual(p.y, landing.y, accuracy: 0.01, "same height")
+        }
+    }
+
+    // Regression: "on slow moves it jumps to the top". macOS's catch-up after the jump stopped at the
+    // Odyssey's top-left corner (0, 0); the next move then crossed into the LG's top row.
+    func testACatchUpStuckAtTheCornerDoesNotSendThePointerToTheTop() {
+        let actions = feed([
+            (675941.1, 0.82, 575.17, 0, 0), (675945.0, 0.59, 575.39, -1, 0),           // slow crossing
+            (675953.5, 0.00, 0.00, -1, -574),                                           // catch-up, stuck at the corner
+            (675957.4, 0.00, 0.00, 0, 0), (675965.6, 0.00, 0.00, 0, 0),
+            (675988.4, 0.00, 0.00, -1, 0),                                              // used to cross to the LG's top
+        ])
+        guard case .jump(let landing) = actions[1] else { return XCTFail("expected a jump, got \(actions[1])") }
+        XCTAssertEqual(landing.y, 575.17 - 1080, accuracy: 0.01, "replayed from the previous spot, as in the capture")
+        XCTAssertEqual(actions[2], .jump(landing), "the pointer is put back where it belongs")
+        for a in actions.dropFirst(3) {
+            guard let p = spot(a) else { return XCTFail("a move from the stuck corner was passed on") }
+            XCTAssertTrue(lg.contains(p) && p.y > -1000, "on the LG at its height, not its top row: \(p)")
+        }
     }
 }
 
@@ -232,7 +317,7 @@ final class PointerRulesTests: XCTestCase {
         let o = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
         let b = Display(uuid: "B", name: "Built-in", frame: CGRect(x: 0, y: 1080, width: 1728, height: 1117))
         let l = Display(uuid: "L", name: "LG", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
-        let rules = PointerRules(plan: try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .right)))
+        let rules = PointerRules(plan: try XCTUnwrap(LayoutPlanner.plan(for: [o, b, l], targetUUID: "O", edge: .right, bridge: 0)))
         XCTAssertNil(rules.correction(from: CGPoint(x: 864, y: 1074), to: CGPoint(x: 864, y: 1080), delta: CGVector(dx: 0, dy: 6)))
     }
 

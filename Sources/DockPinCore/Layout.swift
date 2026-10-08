@@ -65,8 +65,14 @@ public enum LayoutPlanner {
 
     /// macOS only puts the Dock on a display whose whole Dock edge borders no other display.
     /// This makes `target` the main display and slides everything beyond that edge along it,
-    /// just far enough that nothing touches the edge any more (they keep touching at a corner).
-    public static func plan(for displays: [Display], targetUUID: String, edge: DockEdge) -> LayoutPlan? {
+    /// just far enough that nothing touches the edge any more.
+    ///
+    /// `bridge`: the moved displays are then nudged back so they share that many points of the target's
+    /// neighbouring edge (instead of just a corner). After DockPin jumps the pointer across, macOS
+    /// brings its own idea of the pointer position along by moving it in a straight line, which can
+    /// only pass between displays that touch; through a bare corner it gets stuck there (the pointer
+    /// then "jumps to the top"). The bridge gives that line a way through.
+    public static func plan(for displays: [Display], targetUUID: String, edge: DockEdge, bridge: CGFloat = 64) -> LayoutPlan? {
         guard displays.contains(where: { $0.uuid == targetUUID }) else { return nil }
         let real = LayoutPlan.normalised(displays, on: targetUUID)
         let target = real.first { $0.uuid == targetUUID }!.frame
@@ -77,8 +83,24 @@ public enum LayoutPlanner {
 
         let others = real.filter { d in !beyond.contains(d) }
         let slide = slideClearing(blockers.map(\.frame), of: target, edge: edge, group: beyond.map(\.frame), others: others.map(\.frame))
-        let pinned = real.map { beyond.contains($0) ? $0.moved(by: slide) : $0 }
+        let nudge = bridgeNudge(bridge, edge: edge, slide: slide, group: beyond.map { $0.frame.offsetBy(dx: slide.dx, dy: slide.dy) }, others: others.map(\.frame))
+        let move = CGVector(dx: slide.dx + nudge.dx, dy: slide.dy + nudge.dy)
+        let pinned = real.map { beyond.contains($0) ? $0.moved(by: move) : $0 }
         return LayoutPlan(real: real, pinned: pinned, targetUUID: targetUUID, edge: edge)
+    }
+
+    /// Moves the slid group back toward the target, across the slide, so it shares `width` points of the
+    /// target's next edge; none if that would land it on another display.
+    static func bridgeNudge(_ width: CGFloat, edge: DockEdge, slide: CGVector, group: [CGRect], others: [CGRect]) -> CGVector {
+        guard width > 0 else { return .zero }
+        let nudge: CGVector
+        switch edge {
+        case .left: nudge = CGVector(dx: width, dy: 0)
+        case .right: nudge = CGVector(dx: -width, dy: 0)
+        case .bottom: nudge = CGVector(dx: 0, dy: -width)
+        }
+        let collides = group.contains { g in others.contains { overlapsInside($0, g.offsetBy(dx: nudge.dx, dy: nudge.dy)) } }
+        return collides ? .zero : nudge
     }
 
     /// Displays whose `edge` no other display touches: pushing the pointer there would pull the Dock onto them.

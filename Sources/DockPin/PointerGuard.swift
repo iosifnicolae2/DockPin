@@ -2,22 +2,26 @@ import AppKit
 import ApplicationServices
 import DockPinCore
 
-/// Applies `PointerRules` to every pointer move.
+/// Applies `PointerTracker` to every pointer move.
 ///
-/// With Accessibility it uses an event tap: each move is corrected inside the same input event, before
+/// With Accessibility it uses an event tap: each move is handled inside the same input event, before
 /// macOS draws the pointer or delivers the event, so a moved border crosses like a real one and dragged
 /// windows follow. Without it, a passive monitor (no permission) hears about the move about a
-/// millisecond later and moves the pointer then, so it can touch the edge for that moment.
+/// millisecond later and moves the pointer then.
 final class PointerGuard {
     enum Mode: String { case tap, monitor }
 
-    var rules: PointerRules? { didSet { previous = nil } }
+    var rules: PointerRules? {
+        didSet { tracker = rules.map(PointerTracker.init) }
+    }
     private(set) var mode = Mode.monitor
-    private var previous: CGPoint?
+    private var tracker: PointerTracker?
     private var tap: CFMachPort?
     private var monitors: [Any] = []
-    private var warpedAt: TimeInterval?
+    private let tail = CursorTail()
     private let movement: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+    /// Set from `defaults write io.bringes.DockPin traceMoves -bool YES`: every move goes to a file.
+    var trace: MoveTrace?
 
     func start() {
         // A warp normally ignores real mouse input for a moment afterwards; don't.
@@ -37,38 +41,25 @@ final class PointerGuard {
         return true
     }
 
-    private func correct(_ location: CGPoint, delta: CGVector, event: CGEvent? = nil) -> CGPoint? {
-        guard let rules else { return nil }
-        let before = previous
-        let fixed = rules.correction(from: previous, to: location, delta: delta)
-        previous = fixed ?? location
-        if let trace { trace.record(event: event, location: location, delta: delta, previous: before, fixed: fixed) }
-        return fixed
-    }
-
-    /// Set from `defaults write io.bringes.DockPin traceMoves -bool YES`: every move goes to a file.
-    var trace: MoveTrace?
-
-    private func delta(of event: CGEvent) -> CGVector {
-        CGVector(dx: Double(event.getIntegerValueField(.mouseEventDeltaX)), dy: Double(event.getIntegerValueField(.mouseEventDeltaY)))
-    }
-
-    /// Synthetic events are stamped with uptime, hardware ones with a clock that also counts sleep.
-    private static func msSince(_ timestamp: CGEventTimestamp) -> Double {
-        [CLOCK_UPTIME_RAW, CLOCK_MONOTONIC_RAW]
-            .map { Double(Int64(clock_gettime_nsec_np($0)) - Int64(timestamp)) / 1e6 }
-            .filter { $0 >= 0 }
-            .min() ?? -1
-    }
-
-    /// Crossings (jumps) are kept in the system log so a report can be traced; small nudges aren't.
-    private func logMove(_ from: CGPoint, _ to: CGPoint, lagMs: Double) {
-        let message = "moved pointer \(from.debugDescription) -> \(to.debugDescription) [\(mode.rawValue)], \(String(format: "%.2f", lagMs)) ms after the event"
-        if hypot(to.x - from.x, to.y - from.y) > 50 {
-            log.notice("\(message, privacy: .public)")
-        } else {
-            log.debug("\(message, privacy: .public)")
+    private func decide(_ location: CGPoint, _ event: CGEvent) -> PointerTracker.Action {
+        guard var tracker else { return .pass }
+        let delta = CGVector(dx: Double(event.getIntegerValueField(.mouseEventDeltaX)), dy: Double(event.getIntegerValueField(.mouseEventDeltaY)))
+        let action = tracker.handle(location: location, delta: delta, time: ProcessInfo.processInfo.systemUptime)
+        self.tracker = tracker
+        trace?.record(event: event, location: location, delta: delta, action: action)
+        switch action {
+        case .pass: tail.update(pointer: location, rules: rules)
+        case .move(let p), .jump(let p):
+            tail.update(pointer: p, rules: rules)
+            if case .jump = action { log.notice("jumped pointer \(location.debugDescription, privacy: .public) -> \(p.debugDescription, privacy: .public) [\(self.mode.rawValue, privacy: .public)]") }
         }
+        return action
+    }
+
+    /// Puts the pointer at `p` and has macOS's own position follow it.
+    private func warp(_ p: CGPoint) {
+        CGWarpMouseCursorPosition(p)
+        CGAssociateMouseAndMouseCursorPosition(1)
     }
 
     // MARK: Event tap (Accessibility)
@@ -92,26 +83,19 @@ final class PointerGuard {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
-        let location = event.location
-        guard let fixed = correct(location, delta: delta(of: event), event: event), let rules else {
-            tail.update(pointer: location, rules: rules)
+        switch decide(event.location, event) {
+        case .pass:
             return Unmanaged.passUnretained(event)
-        }
-        logMove(location, fixed, lagMs: Self.msSince(event.timestamp))
-        tail.update(pointer: fixed, rules: rules)
-        if rules.onSameDisplay(location, fixed) {
-            event.location = fixed  // a small fix on the same display: apps and dragged windows see it
+        case .move(let p):
+            event.location = p  // same display: apps and dragged windows see the corrected position
             return Unmanaged.passUnretained(event)
+        case .jump(let p):
+            // Another display that isn't next to this one in the pinned layout: passed on, macOS would move
+            // the pointer there along the displays and stop it at their shared corner. Drop the event instead.
+            warp(p)
+            return nil
         }
-        // A crossing to a display the pinned layout doesn't put next to this one. Passed on, macOS would move
-        // the pointer there along the displays and stop it at their shared corner, so drop this event and
-        // put the pointer there directly; re-associating keeps the hardware position in step.
-        CGWarpMouseCursorPosition(fixed)
-        CGAssociateMouseAndMouseCursorPosition(1)
-        return nil
     }
-
-    private let tail = CursorTail()
 
     // MARK: Passive monitor (no permission)
 
@@ -126,19 +110,10 @@ final class PointerGuard {
     }
 
     private func handleMonitor(_ event: NSEvent) {
-        if let warpedAt {
-            log.debug("next move \((event.timestamp - warpedAt) * 1000, format: .fixed(precision: 1)) ms after the warp")
-            self.warpedAt = nil
-        }
         guard let cg = event.cgEvent, let location = CGEvent(source: nil)?.location else { return }
-        guard let fixed = correct(location, delta: delta(of: cg), event: cg) else {
-            tail.update(pointer: location, rules: rules)
-            return
+        switch decide(location, cg) {
+        case .pass: break
+        case .move(let p), .jump(let p): warp(p)
         }
-        tail.update(pointer: fixed, rules: rules)
-        CGWarpMouseCursorPosition(fixed)
-        CGAssociateMouseAndMouseCursorPosition(1)
-        warpedAt = ProcessInfo.processInfo.systemUptime
-        logMove(location, fixed, lagMs: (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000)
     }
 }

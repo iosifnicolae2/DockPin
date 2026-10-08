@@ -1,10 +1,11 @@
 import CoreGraphics
+import DockPinCore
 import Foundation
 
 /// Diagnostic capture of every pointer move, for reproducing a crossing that went wrong with a real hand:
 /// `defaults write io.bringes.DockPin traceMoves -bool YES`, move, then read ~/Library/Logs/DockPin/moves.log.
 /// One line per event: ms, event type, event location, live pointer, delta (int and fractional),
-/// previous spot, DockPin's correction ("-" for none).
+/// what DockPin did (pass, move or jump) and where to.
 final class MoveTrace {
     private let handle: FileHandle
     private let start = ProcessInfo.processInfo.systemUptime
@@ -17,18 +18,23 @@ final class MoveTrace {
         guard let handle = try? FileHandle(forWritingTo: file) else { return nil }
         handle.seekToEndOfFile()
         self.handle = handle
-        write("# started; columns: ms type x y live_x live_y dx dy fdx fdy prev_x prev_y fixed_x fixed_y")
+        write(String(format: "# started at %.3f (Unix time); columns: ms type x y live_x live_y dx dy fdx fdy action to_x to_y", Date().timeIntervalSince1970))
     }
 
-    func record(event: CGEvent?, location: CGPoint, delta: CGVector, previous: CGPoint?, fixed: CGPoint?) {
+    func record(event: CGEvent?, location: CGPoint, delta: CGVector, action: PointerTracker.Action) {
         let live = CGEvent(source: nil)?.location ?? .zero
         let fdx = event?.getDoubleValueField(.mouseEventDeltaX) ?? 0
         let fdy = event?.getDoubleValueField(.mouseEventDeltaY) ?? 0
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
         let f = { (v: CGFloat?) in v.map { String(format: "%.2f", $0) } ?? "-" }
+        let (kind, to): (String, CGPoint?) = switch action {
+        case .pass: ("pass", nil)
+        case .move(let p): ("move", p)
+        case .jump(let p): ("jump", p)
+        }
         write(String(format: "%.1f %d ", ms, Int(event?.type.rawValue ?? 0))
               + [location.x, location.y, live.x, live.y, delta.dx, delta.dy, fdx, fdy].map { f($0) }.joined(separator: " ")
-              + " \(f(previous?.x)) \(f(previous?.y)) \(f(fixed?.x)) \(f(fixed?.y))")
+              + " \(kind) \(f(to?.x)) \(f(to?.y))")
     }
 
     private func write(_ line: String) {

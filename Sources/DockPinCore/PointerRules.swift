@@ -13,6 +13,14 @@ public struct PointerRules {
 
     static let largestHandMove: CGFloat = 300
 
+    /// Where macOS would leave a move from `from` that ends at `p`: on a display there, else stopped at the
+    /// edge of the display it started on.
+    public func clampedOntoDisplay(_ p: CGPoint, near from: CGPoint) -> CGPoint {
+        if plan.pinned.contains(where: { $0.frame.contains(p) }) { return p }
+        guard let d = display(near: from) else { return p }
+        return clamp(p, into: d.frame)
+    }
+
     /// True when both points are on the same display (of the pinned layout).
     public func onSameDisplay(_ a: CGPoint, _ b: CGPoint) -> Bool {
         display(near: a) == display(near: b)

@@ -17,7 +17,7 @@ To capture real moves for a bug report: `defaults write io.bringes.DockPin trace
 reproduce, `defaults delete io.bringes.DockPin traceMoves`, then
 `python3 scripts/analyze-moves.py ~/Library/Logs/DockPin/moves.log` flags bad crossings.
 Logs: `/usr/bin/log show --last 1h --predicate 'subsystem == "io.bringes.DockPin"'`.
-The app icon is drawn by `scripts/make-icon.py`, and the README picture by `scripts/make-readme-image.sh`
+The app icon is built by `scripts/make-icon.sh` (an Icon Composer icon, `Resources/AppIcon.icon`), and the README picture by `scripts/make-readme-image.sh`
 (a macOS desktop rendered from `scripts/readme-image/page.html`; no screenshot, nothing personal).
 
 ## Release

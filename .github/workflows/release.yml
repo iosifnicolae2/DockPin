@@ -2,9 +2,9 @@
 # Repository secrets it needs (Settings > Secrets and variables > Actions):
 #   DEVELOPER_ID_P12_BASE64   base64 of the "Developer ID Application" certificate + key exported as .p12
 #   DEVELOPER_ID_P12_PASSWORD password of that .p12
-#   NOTARY_APPLE_ID           Apple ID used for notarization
-#   NOTARY_PASSWORD           app-specific password of that Apple ID
-#   NOTARY_TEAM_ID            Apple developer team ID
+#   NOTARY_KEY_P8_BASE64      base64 of an App Store Connect Team API key (.p8) used for notarization
+#   NOTARY_KEY_ID             that key's ID
+#   NOTARY_ISSUER_ID          the App Store Connect issuer ID
 name: Release
 
 on:
@@ -45,11 +45,15 @@ jobs:
           rm "$RUNNER_TEMP/cert.p12"
 
       - name: Store notary credentials
-        run: xcrun notarytool store-credentials DockPin-notary --apple-id "$APPLE_ID" --password "$PASSWORD" --team-id "$TEAM_ID"
+        run: |
+          key="$RUNNER_TEMP/notary.p8"
+          echo "$KEY_P8_BASE64" | base64 --decode > "$key"
+          xcrun notarytool store-credentials DockPin-notary --key "$key" --key-id "$KEY_ID" --issuer "$ISSUER_ID"
+          rm "$key"
         env:
-          APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
-          PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
-          TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
 
       - name: Build, sign, notarize
         run: scripts/release.sh

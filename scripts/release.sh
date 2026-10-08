@@ -4,7 +4,8 @@
 # Needs, in the keychain (never in this repo):
 #   - a "Developer ID Application" certificate (DOCKPIN_IDENTITY overrides which one)
 #   - a notarytool profile (DOCKPIN_NOTARY_PROFILE, default "DockPin-notary"), made once with:
-#       xcrun notarytool store-credentials DockPin-notary --apple-id <apple id> --team-id <team id>
+#       xcrun notarytool store-credentials DockPin-notary --key <AuthKey.p8> --key-id <key id> --issuer <issuer id>
+#     (an App Store Connect Team API key; an Apple ID + app-specific password works too)
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$root/Resources/Info.plist")

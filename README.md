@@ -9,16 +9,22 @@ Keeps the macOS Dock on your center monitor.
 With several monitors, macOS puts the Dock wherever it likes and moves it whenever the pointer
 lingers at another screen's edge. DockPin keeps it on the monitor in the middle, whether the Dock
 sits on the left, the bottom or the right, through sleep, display changes and every login.
-It lives in the menu bar and needs no permissions.
+It lives in the menu bar.
 
 ## Install
 
 1. Download `DockPin-<version>.zip` from Releases, unzip it, and move `DockPin.app` to Applications.
 2. Open it. Its icon appears in the menu bar, and it opens at login from then on.
+3. macOS asks to give DockPin Accessibility access: allow it in System Settings > Privacy &
+   Security > Accessibility. DockPin notices and switches over by itself. It only watches pointer
+   movement; it never reads keystrokes, windows or the screen.
 
-To stop it, choose Quit from its menu: your display arrangement goes back to how it was.
-To pin a different display than the auto-detected center one:
-`defaults write io.bringes.DockPin targetDisplay "<display name>"`.
+From its menu you can pick:
+
+- **Pin Dock To**: the center display (automatic) or any connected monitor.
+- **Dock Position**: left, bottom or right (the same setting as in System Settings).
+
+To stop it, choose Quit: your display arrangement goes back to how it was.
 
 ## How it works
 
@@ -42,10 +48,21 @@ So DockPin, for the current login session only:
    pulled away.
 4. Does it again after displays change, wake, or a change of the Dock's position.
 
+## Why Accessibility
+
+With it, DockPin corrects each pointer move inside the same input event (an event tap), before
+macOS draws the pointer or tells any app, so a moved border feels like any other and dragged
+windows follow. Without it, DockPin falls back to watching moves afterwards, which needs no
+permission but lets the pointer touch the edge for about a millisecond first. Measured on an
+M5 Pro, moving the pointer 200 times a second:
+
+| Mode                     | Correction after the move | CPU while moving    | CPU idle |
+|--------------------------|---------------------------|---------------------|----------|
+| Accessibility (event tap) | 0.1 to 0.3 ms, within the event | 74 µs a move (1.5% of a core) | 0.003% |
+| Without (passive monitor) | about 1 ms (p95 3.8 ms), after the event | 99 to 160 µs a move (2 to 3%) | 0%     |
+
 ## Trade-offs
 
-- DockPin hears about a pointer move just after macOS makes it. At a moved border the pointer
-  touches the edge for that moment (a few milliseconds) before it is carried across.
 - System Settings > Displays shows the moved arrangement while DockPin runs. To change your
   arrangement, quit DockPin, change it, and open DockPin again.
 - The outermost pixel row or column on the other displays' Dock edges can't be reached.
@@ -56,6 +73,7 @@ So DockPin, for the current login session only:
 swift test                         # layout and pointer rules
 scripts/build-app.sh --install     # build/DockPin.app (ad-hoc signed) into ~/Applications, and start it
 swift scripts/pointer-test.swift   # drives the real pointer: every crossing, and the Dock stays put
+swift scripts/drag-test.swift DIR  # drags a Finder window across the moved border and back
 ```
 
 Logs: `/usr/bin/log show --last 1h --predicate 'subsystem == "io.bringes.DockPin"'`.

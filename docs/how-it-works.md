@@ -44,10 +44,15 @@ With it, DockPin handles each pointer move inside the same input event (an event
 draws the pointer or tells any app, and moves the pointer by posting an event of its own. That keeps
 macOS's own idea of the pointer in step: moving it any other way (a "warp") makes macOS catch up
 later in one big jump across the moved display, which can pull the pointer to the wrong spot and
-which macOS's shake-to-locate takes for a shake (it enlarges the pointer). Dragged windows follow.
+which macOS's shake-to-locate takes for a shake (it enlarges the pointer). The posted event is a copy
+of the hand's, so a window dragged by its title bar moves with the pointer in the same event and stays
+under it across a moved border (`scripts/drag-test.swift` measures 0 pt between them, before, during and
+after each crossing). Right after a crossing, macOS's next move starts from the new spot and carries the
+whole jump in its delta; DockPin passes it and every move after it on untouched.
 
 Without Accessibility, DockPin watches moves afterwards and warps: no permission, but the pointer
-can touch the edge for about a millisecond before it is carried across.
+can touch the edge for about a millisecond before it is carried across, a dragged window follows a
+crossing one move later, and a pointer held pushed against the bridge can creep the wrong way.
 
 Measured on an M5 Pro:
 

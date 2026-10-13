@@ -26,20 +26,25 @@ final class PointerGuard {
     /// Set from `defaults write io.bringes.DockPin traceMoves -bool YES`: every move goes to a file.
     var trace: MoveTrace?
 
+    /// Set from `defaults write io.bringes.DockPin monitorMode -bool YES`: the fallback, for testing it with
+    /// Accessibility granted.
+    private var monitorForced: Bool { UserDefaults.standard.bool(forKey: "monitorMode") }
+
     func start() {
         // A warp normally ignores real mouse input for a moment afterwards; don't.
         CGEventSource(stateID: .combinedSessionState)?.localEventsSuppressionInterval = 0
         let trusted = AXIsProcessTrusted()
-        if trusted, startTap() { mode = .tap } else { startMonitor() }
+        if trusted, !monitorForced, startTap() { mode = .tap } else { startMonitor() }
         // Accessibility is granted to one signature: a rebuilt ad-hoc copy is a stranger to it.
-        let why = mode == .tap ? "" : trusted ? " (the event tap failed)" : " (Accessibility not granted to this copy's signature)"
+        let why = mode == .tap ? "" : monitorForced ? " (monitorMode is set)"
+            : trusted ? " (the event tap failed)" : " (Accessibility not granted to this copy's signature)"
         log.notice("pointer guard: \(self.mode.rawValue, privacy: .public)\(why, privacy: .public)")
     }
 
     /// Switches to the event tap once Accessibility has been granted; returns true if it switched.
     @discardableResult
     func upgradeIfTrusted() -> Bool {
-        guard mode == .monitor, AXIsProcessTrusted(), startTap() else { return false }
+        guard mode == .monitor, !monitorForced, AXIsProcessTrusted(), startTap() else { return false }
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         mode = .tap
@@ -106,18 +111,19 @@ final class PointerGuard {
 
     /// Tags the events DockPin posts, so its own tap lets them through untouched.
     private static let ownEvent: Int64 = 0x0D0C_0B1E
-    private let postSource = CGEventSource(stateID: .hidSystemState)
 
-    /// Replaces `original` (dropped by the caller) with the same kind of event at `p`: a move, or a drag with
-    /// the same button, so a dragged window follows.
+    /// Replaces `original` (dropped by the caller) with a copy of it at `p`. A copy, not a new event of the same
+    /// type: macOS moves a window dragged by its title bar with the copy at once, but with a new event only
+    /// when the next real one comes, so the window would trail the pointer across the border.
+    ///
+    /// macOS moves its own idea of the pointer to `p` only if the pointer really moves. Held at an edge (say at
+    /// the bridge, which isn't a border in reality) the spot is often where the pointer already is; then
+    /// macOS would keep adding the hand's moves to where it thinks the pointer is, past the edge, so the
+    /// spot is moved by a hundredth of a point.
     private func post(_ p: CGPoint, replacing original: CGEvent) {
-        let button = CGMouseButton(rawValue: UInt32(original.getIntegerValueField(.mouseEventButtonNumber))) ?? .left
-        guard let event = CGEvent(mouseEventSource: postSource, mouseType: original.type, mouseCursorPosition: p, mouseButton: button) else {
-            return warp(p)
-        }
-        event.flags = original.flags
-        event.setIntegerValueField(.mouseEventDeltaX, value: original.getIntegerValueField(.mouseEventDeltaX))
-        event.setIntegerValueField(.mouseEventDeltaY, value: original.getIntegerValueField(.mouseEventDeltaY))
+        guard let event = original.copy() else { return warp(p) }
+        let here = CGEvent(source: nil)?.location
+        event.location = here == p ? CGPoint(x: p.x + 0.01, y: p.y) : p
         event.setIntegerValueField(.eventSourceUserData, value: Self.ownEvent)
         event.post(tap: .cghidEventTap)
     }

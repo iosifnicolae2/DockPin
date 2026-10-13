@@ -26,20 +26,21 @@ public struct PointerRules {
         guard let da = display(near: a)?.frame, let db = display(near: b)?.frame else { return false }
         if da == db { return true }
         // The shared edge: horizontal (one above the other) or vertical (side by side), with its range.
-        let crossing: (along: CGFloat, range: ClosedRange<CGFloat>)?
+        let crossing: (along: CGFloat, from: CGFloat, to: CGFloat)?
         if da.maxY == db.minY || da.minY == db.maxY {
             let y = da.maxY == db.minY ? da.maxY : da.minY
             let t = (y - a.y) / (b.y - a.y)
-            crossing = (a.x + (b.x - a.x) * t, max(da.minX, db.minX)...min(da.maxX, db.maxX))
+            crossing = (a.x + (b.x - a.x) * t, max(da.minX, db.minX), min(da.maxX, db.maxX))
         } else if da.maxX == db.minX || da.minX == db.maxX {
             let x = da.maxX == db.minX ? da.maxX : da.minX
             let t = (x - a.x) / (b.x - a.x)
-            crossing = (a.y + (b.y - a.y) * t, max(da.minY, db.minY)...min(da.maxY, db.maxY))
+            crossing = (a.y + (b.y - a.y) * t, max(da.minY, db.minY), min(da.maxY, db.maxY))
         } else {
             crossing = nil
         }
-        guard let crossing, crossing.range.upperBound - crossing.range.lowerBound >= 1 else { return false }
-        return crossing.range.contains(crossing.along)
+        // Displays that only meet at a corner, or sit diagonally apart, share no stretch (`to` is below `from`).
+        guard let crossing, crossing.to - crossing.from >= 1 else { return false }
+        return crossing.from <= crossing.along && crossing.along <= crossing.to
     }
 
     /// For a crossing that lands at `target`, the spot on the same display right across the real border it

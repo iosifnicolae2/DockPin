@@ -31,19 +31,28 @@ final class Pinner {
         reconcile()
     }
 
+    /// Set while the Mac logs out or shuts down, so the real arrangement DockPin just put back stays.
+    var isPaused = false
+
     func reconcile() {
+        guard !isPaused else { return }
         let live = Displays.current()
         let key = Displays.setKey(live)
         let edge = DockPrefs.edge()
 
-        // If what's live is our own pinned layout, the user's real one is the one we saved with it.
+        // What's live may be (partly) a layout DockPin pinned, even right after a restart: use the real one behind it.
         let saved = savedPlan(for: key)
-        let real = saved.flatMap { Displays.matches(live, $0.pinned) ? $0.real : nil } ?? live
+        let real = RealArrangement.behind(live, saved: saved, last: activePlan ?? lastPlan)
 
-        guard let target = chooseTarget(in: real), let plan = LayoutPlanner.plan(for: real, targetUUID: target.uuid, edge: edge) else {
+        guard let target = chooseTarget(in: real.displays),
+              var plan = LayoutPlanner.plan(for: real.displays, targetUUID: target.uuid, edge: edge) else {
             log.notice("no center display among \(live.count) displays; nothing to pin")
             use(nil)
             return
+        }
+        plan.mainUUID = real.mainUUID
+        if !Displays.matches(live, real.displays), !(saved.map { Displays.matches(live, $0.pinned) } ?? false) {
+            log.notice("displays still where DockPin moved them; pinning from the real arrangement behind them")
         }
         if plan != saved || !Displays.matches(live, plan.pinned) {
             save(plan, for: key)
@@ -55,12 +64,14 @@ final class Pinner {
         use(plan)
     }
 
-    /// Puts the real arrangement back (the Dock then goes wherever macOS wants it).
+    /// Puts the real arrangement back (the Dock then goes wherever macOS wants it) and saves it as the user's
+    /// own, since macOS may have saved the pinned one: after a restart, System Settings shows the real one.
     func restore() {
         pointer.rules = nil
         guard let plan = activePlan else { return }
-        Displays.arrange(plan.real)
-        log.notice("restored the real arrangement")
+        guard !Displays.matches(Displays.current(), plan.restored) else { return }
+        let ok = Displays.arrange(plan.restored, .permanently)
+        log.notice("restored the real arrangement: \(ok ? "saved" : "failed", privacy: .public)")
     }
 
     private func use(_ plan: LayoutPlan?) {
@@ -68,8 +79,16 @@ final class Pinner {
         if plan != activePlan || pointer.rules == nil {
             pointer.rules = plan.map(PointerRules.init)
         }
+        if let plan, plan != activePlan { lastPlan = plan }
         activePlan = plan
         onChange?()
+    }
+
+    /// The plan in use, kept across launches: after a crash or restart it tells which displays still sit where
+    /// DockPin moved them.
+    private var lastPlan: LayoutPlan? {
+        get { defaults.data(forKey: "lastPlan").flatMap { try? JSONDecoder().decode(LayoutPlan.self, from: $0) } }
+        set { defaults.set(try? JSONEncoder().encode(newValue), forKey: "lastPlan") }
     }
 
     /// The display picked in the menu if it's connected, else the center one.

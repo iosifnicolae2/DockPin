@@ -7,7 +7,8 @@ Open it when you work on the code or cut a release.
 
 ```sh
 swift test                           # layout, pointer rules, edge audit, replays of real captures
-scripts/build-app.sh --install       # build/DockPin.app (ad-hoc signed) into ~/Applications, and start it
+scripts/build-app.sh --install       # build/DockPin.app into ~/Applications, and start it (signed with your Developer ID if
+                                     # the keychain has one, so Accessibility stays granted; ad-hoc builds lose it each rebuild)
 swift scripts/pointer-test.swift     # drives the real pointer: every crossing, and the Dock stays put
 swift scripts/drag-test.swift DIR    # drags a Finder window across the moved border and back
 swift scripts/stress-test.swift 15   # sustained fast crossings: pointer delay and DockPin CPU per second

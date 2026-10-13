@@ -2,13 +2,16 @@
 # Builds build/DockPin.app (release). Usage: scripts/build-app.sh [--install]
 #   --install            also copy it to ~/Applications and (re)start it.
 # Env:
-#   DOCKPIN_IDENTITY     codesign identity (default "-": ad-hoc, for local use only)
+#   DOCKPIN_IDENTITY     codesign identity (default: the keychain's Developer ID Application, else "-": ad-hoc)
+#                        Accessibility is granted to a signature: an ad-hoc build loses it on every rebuild,
+#                        a Developer ID build keeps it (and shares it with the released app).
 #   DOCKPIN_UNIVERSAL=1  build for arm64 and x86_64
 #   DOCKPIN_OUT          folder for DockPin.app (default build/)
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 app="${DOCKPIN_OUT:-$root/build}/DockPin.app"
-identity="${DOCKPIN_IDENTITY:--}"
+developer_id=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)
+identity="${DOCKPIN_IDENTITY:-${developer_id:--}}"
 
 archs=""
 if [ "${DOCKPIN_UNIVERSAL:-0}" = 1 ]; then archs="--arch arm64 --arch x86_64"; fi

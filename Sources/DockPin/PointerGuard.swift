@@ -29,8 +29,11 @@ final class PointerGuard {
     func start() {
         // A warp normally ignores real mouse input for a moment afterwards; don't.
         CGEventSource(stateID: .combinedSessionState)?.localEventsSuppressionInterval = 0
-        if AXIsProcessTrusted(), startTap() { mode = .tap } else { startMonitor() }
-        log.notice("pointer guard: \(self.mode.rawValue, privacy: .public)")
+        let trusted = AXIsProcessTrusted()
+        if trusted, startTap() { mode = .tap } else { startMonitor() }
+        // Accessibility is granted to one signature: a rebuilt ad-hoc copy is a stranger to it.
+        let why = mode == .tap ? "" : trusted ? " (the event tap failed)" : " (Accessibility not granted to this copy's signature)"
+        log.notice("pointer guard: \(self.mode.rawValue, privacy: .public)\(why, privacy: .public)")
     }
 
     /// Switches to the event tap once Accessibility has been granted; returns true if it switched.

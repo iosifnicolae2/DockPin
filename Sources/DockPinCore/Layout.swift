@@ -17,7 +17,7 @@ public struct Display: Equatable, Codable {
         self.frame = frame
     }
 
-    func moved(by offset: CGVector) -> Display {
+    public func moved(by offset: CGVector) -> Display {
         var d = self
         d.frame = frame.offsetBy(dx: offset.dx, dy: offset.dy)
         return d
@@ -31,6 +31,11 @@ public struct LayoutPlan: Equatable, Codable {
     public var pinned: [Display]
     public var targetUUID: String
     public var edge: DockEdge
+    /// The display the user had as main; DockPin makes the target main while it runs.
+    public var mainUUID: String? = nil
+
+    /// The real arrangement as System Settings had it, with the user's own main display at (0, 0).
+    public var restored: [Display] { Self.normalised(real, on: mainUUID ?? targetUUID) }
 
     /// How far each display was moved (pinned minus real).
     public var offsetByUUID: [String: CGVector] {

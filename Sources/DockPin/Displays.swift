@@ -17,9 +17,10 @@ enum Displays {
         }
     }
 
-    /// Moves displays to the given frames' origins until log out; the saved arrangement is left alone.
+    /// Moves displays to the given frames' origins. `.forSession` is meant to last until log out and leave the
+    /// saved arrangement alone, but macOS may save it anyway; `.permanently` also saves it as the user's own.
     @discardableResult
-    static func arrange(_ layout: [Display]) -> Bool {
+    static func arrange(_ layout: [Display], _ option: CGConfigureOption = .forSession) -> Bool {
         let ids = activeIDsByUUID()
         var config: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&config) == .success else { return false }
@@ -27,12 +28,11 @@ enum Displays {
             guard let id = ids[display.uuid] else { continue }
             CGConfigureDisplayOrigin(config, id, Int32(display.frame.minX), Int32(display.frame.minY))
         }
-        return CGCompleteDisplayConfiguration(config, .forSession) == .success
+        return CGCompleteDisplayConfiguration(config, option) == .success
     }
 
     static func matches(_ live: [Display], _ layout: [Display]) -> Bool {
-        let origins = Dictionary(uniqueKeysWithValues: layout.map { ($0.uuid, $0.frame.origin) })
-        return live.count == layout.count && live.allSatisfy { origins[$0.uuid] == $0.frame.origin }
+        RealArrangement.sameOrigins(live, layout)
     }
 
     static func setKey(_ displays: [Display]) -> String {

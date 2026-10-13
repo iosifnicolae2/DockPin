@@ -474,3 +474,102 @@ final class VirtualDisplayTests: XCTestCase {
         XCTAssertTrue(HardwareScreen.isReal(builtIn: false, vendor: 0xB7A5, serial: 1, among: []))
     }
 }
+
+/// What DockPin takes for the user's arrangement when the live one may still be a layout it pinned:
+/// after a crash or a restart macOS keeps (and saves) the pinned layout, and when a display goes away it
+/// keeps the others where they were. The left Dock plan lifts the LG above the Odyssey.
+final class RealArrangementTests: XCTestCase {
+    func sorted(_ displays: [Display]) -> [Display] { displays.sorted { $0.uuid < $1.uuid } }
+
+    func testThePinnedLayoutSavedForTheseDisplaysMapsToItsRealOne() throws {
+        let p = try plan(.left)
+        XCTAssertEqual(RealArrangement.behind(p.pinned, saved: p, last: nil).displays, p.real)
+    }
+
+    func testAfterARestartWithNoPlanForTheseDisplaysTheLastPlanStillUndoesTheMove() throws {
+        // How the user's 4-display plan came to hold the pinned layout as the "real" one: nothing was saved
+        // for exactly these displays (a monitor's UUID changed, a virtual display came or went).
+        let p = try plan(.left)
+        let real = RealArrangement.behind(p.pinned, saved: nil, last: p)
+        XCTAssertEqual(sorted(real.displays), sorted(p.real))
+        XCTAssertEqual(real.displays.first { $0.uuid == "L" }?.frame.origin, CGPoint(x: -1920, y: 0), "beside the Odyssey again")
+    }
+
+    func testAStaleSavedPlanForTheseDisplaysDoesNotTurnThePinnedLayoutIntoTheRealOne() throws {
+        let p = try plan(.left)
+        let stale = try XCTUnwrap(LayoutPlanner.plan(for: p.real, targetUUID: "O", edge: .bottom, bridge: 0))
+        XCTAssertEqual(sorted(RealArrangement.behind(p.pinned, saved: stale, last: p).displays), sorted(p.real))
+    }
+
+    func testWithADisplayUnpluggedTheOthersStillSitWhereTheyReallyAre() throws {
+        let p = try plan(.left)
+        let live = p.pinned.filter { $0.uuid != "P" }
+        let real = RealArrangement.behind(live, saved: nil, last: p)
+        XCTAssertEqual(sorted(real.displays), sorted(p.real.filter { $0.uuid != "P" }))
+    }
+
+    func testTheMoveIsRecognisedWhenMacOSShiftedTheWholeArrangement() throws {
+        // The laptop became main, so everything sits 97 left and 1080 up from the plan's coordinates.
+        let p = try plan(.left)
+        let live = p.pinned.map { $0.moved(by: CGVector(dx: -97, dy: -1080)) }
+        let real = RealArrangement.behind(live, saved: nil, last: p)
+        XCTAssertEqual(real.displays.first { $0.uuid == "L" }?.frame.origin, CGPoint(x: -2017, y: -1080))
+    }
+
+    func testAMonitorThatGotANewUUIDIsKnownByItsNameAndSize() throws {
+        let p = try plan(.left)
+        let live = p.pinned.map { d -> Display in var d = d; if d.uuid == "L" { d.uuid = "L2" }; return d }
+        let lg = try XCTUnwrap(RealArrangement.behind(live, saved: nil, last: p).displays.first { $0.uuid == "L2" })
+        XCTAssertEqual(lg.frame.origin, CGPoint(x: -1920, y: 0))
+    }
+
+    func testADisplayTheUserMovedStaysWhereTheyPutIt() throws {
+        // System Settings shows the pinned layout; the user drags only the laptop.
+        let p = try plan(.left)
+        let live = p.pinned.map { $0.uuid == "B" ? Display(uuid: "B", name: $0.name, frame: CGRect(origin: CGPoint(x: 500, y: 1080), size: $0.frame.size)) : $0 }
+        let real = RealArrangement.behind(live, saved: p, last: p).displays
+        XCTAssertEqual(real.first { $0.uuid == "B" }?.frame.origin, CGPoint(x: 500, y: 1080))
+        XCTAssertEqual(real.first { $0.uuid == "L" }?.frame.origin, CGPoint(x: -1920, y: 0), "the LG goes back beside the Odyssey")
+    }
+
+    func testNothingIsUndoneWhereItWouldLandOnAnotherDisplay() throws {
+        let p = try plan(.left)
+        let other = Display(uuid: "X", name: "Other", frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080))
+        let live = p.pinned + [other]
+        XCTAssertEqual(RealArrangement.behind(live, saved: nil, last: p).displays, live)
+    }
+
+    func testWithNothingKnownTheLiveArrangementIsTheRealOne() {
+        let real = RealArrangement.behind(desk, saved: nil, last: nil)
+        XCTAssertEqual(real.displays, desk)
+        XCTAssertEqual(real.mainUUID, "B", "the display at (0, 0) is main")
+    }
+
+    func testRestoringPutsTheUsersOwnMainDisplayBack() throws {
+        var p = try plan(.left)
+        p.mainUUID = "B"
+        let restored = Dictionary(uniqueKeysWithValues: p.restored.map { ($0.uuid, $0.frame.origin) })
+        XCTAssertEqual(restored["B"], .zero)
+        XCTAssertEqual(restored["O"], CGPoint(x: -97, y: -1080))
+        XCTAssertEqual(restored["L"], CGPoint(x: -2017, y: -1080))
+    }
+
+    func testOlderSavedPlansWithoutAMainDisplayStillLoad() throws {
+        let json = #"{"real":[],"pinned":[],"targetUUID":"O","edge":"left"}"#
+        XCTAssertNil(try JSONDecoder().decode(LayoutPlan.self, from: Data(json.utf8)).mainUUID)
+    }
+}
+
+final class CatchUpCrashTests: XCTestCase {
+    // Regression: DockPin crashed (Range requires lowerBound <= upperBound) and left the pinned layout behind.
+    // The PHL's bottom and the LG's top are both at y 0 but they sit diagonally apart, sharing no stretch.
+    func testDisplaysThatShareALineButNoEdgeDoNotCrash() {
+        let odyssey = Display(uuid: "O", name: "Odyssey", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        let lg = Display(uuid: "L", name: "LG", frame: CGRect(x: 1920, y: 0, width: 1920, height: 1080))
+        let phl = Display(uuid: "P", name: "PHL", frame: CGRect(x: -1824, y: -1080, width: 1920, height: 1080))
+        let layout = [odyssey, lg, phl]
+        let rules = PointerRules(plan: LayoutPlan(real: layout, pinned: layout, targetUUID: "O", edge: .left))
+        XCTAssertFalse(rules.catchUpCanPass(from: CGPoint(x: -900, y: -500), to: CGPoint(x: 2500, y: 500)))
+        XCTAssertFalse(rules.catchUpCanPass(from: CGPoint(x: 2500, y: 500), to: CGPoint(x: -900, y: -500)))
+    }
+}

@@ -26,6 +26,14 @@ So DockPin, for the current login session only:
 3. Keeps the pointer one point away from the other displays' Dock edges, so the Dock can't be
    pulled away.
 4. Does it again after displays change, wake, or a change of the Dock's position.
+5. Puts your arrangement back, and saves it as yours, when you quit it, log out, restart or shut down.
+
+macOS doesn't keep the moved arrangement to the session as promised: it saves it as your own (it
+comes back after a restart and shows in System Settings) and keeps it after a crash, a power loss or
+a kernel panic, when DockPin couldn't put yours back. So DockPin never takes the arrangement it finds
+for yours as it is: any display still exactly where DockPin moved it (relative to the ones it left in
+place) is put back where it really belongs, even after a monitor got a new ID or another display came
+or went. A display you moved yourself stays where you put it.
 
 The pointer behaves on every edge of every display as in your System Settings arrangement: a test
 checks each edge, corners included, for every Dock position (`EdgeAuditTests`).

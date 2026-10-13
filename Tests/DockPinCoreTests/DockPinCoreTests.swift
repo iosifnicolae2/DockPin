@@ -247,6 +247,60 @@ final class FastFlickTests: XCTestCase {
     }
 }
 
+/// Once macOS has caught up after a jump, its next event starts where the pointer was put and carries the
+/// whole jump plus that event's hand move as its delta. That event and the ones after it must be passed on
+/// as they are: putting the pointer back (or posting a corrected copy) left macOS a step behind on every
+/// event, so the pointer, and a window dragged by its title bar, crawled at half speed and snapped back.
+final class CatchUpTests: XCTestCase {
+    var tracker: PointerTracker!
+
+    override func setUpWithError() throws {
+        tracker = PointerTracker(rules: PointerRules(plan: try XCTUnwrap(LayoutPlanner.plan(for: desk, targetUUID: "O", edge: .left))))
+    }
+
+    /// The tracker's answer, to the hundredth of a point (as the capture's coordinates).
+    func handle(_ ms: Double, _ x: CGFloat, _ y: CGFloat, _ dx: CGFloat, _ dy: CGFloat) -> PointerTracker.Action {
+        let round = { (p: CGPoint) in CGPoint(x: (p.x * 100).rounded() / 100, y: (p.y * 100).rounded() / 100) }
+        switch tracker.handle(location: CGPoint(x: x, y: y), delta: CGVector(dx: dx, dy: dy), time: ms / 1000) {
+        case .pass: return .pass
+        case .move(let p): return .move(round(p))
+        case .jump(let p): return .jump(round(p))
+        }
+    }
+
+    // A real hand (moves.log, Oct 8, 598098): one stale move, then the catch-up with a 7 pt move in it.
+    func testTheCatchUpEventCarryingAHandMoveIsPassedOn() {
+        XCTAssertEqual(handle(598091.2, 27.59, 697.79, -9, -1), .pass)
+        XCTAssertEqual(handle(598098.2, 0, 695.33, -36, -3), .jump(CGPoint(x: 87.59, y: -385.21)), "across at the same height")
+        XCTAssertEqual(handle(598098.7, 0, 694.68, -8, 0), .move(CGPoint(x: 79.59, y: -385.21)), "a stale move follows the hand")
+        XCTAssertEqual(handle(598099.3, 72.64, -385.84, 71, -1081), .pass, "caught up, 7 pt further: not put back")
+        XCTAssertEqual(handle(598100.3, 67.98, -385.84, -3, 0), .pass)
+    }
+
+    // A window dragged across the moved border by a mouse (scripts/drag-test.swift): macOS catches up at once.
+    func testADragFollowsTheHandFromTheFirstEventAfterTheCrossing() {
+        XCTAssertEqual(handle(0, 12, 540, -6, 0), .pass)
+        XCTAssertEqual(handle(10, 6, 540, -6, 0), .pass)
+        XCTAssertEqual(handle(20, 0, 540, -6, 0), .pass, "reaching the edge isn't crossing yet")
+        XCTAssertEqual(handle(30, 0, 540, -6, 0), .jump(CGPoint(x: 90, y: -540)))
+        for (i, x) in [84, 78, 72, 66].enumerated() {
+            let dx: CGFloat = i == 0 ? 84 : -6, dy: CGFloat = i == 0 ? -1080 : 0
+            XCTAssertEqual(handle(Double(40 + 10 * i), CGFloat(x), -540, dx, dy), .pass, "6 pt a step, like the hand, at \(x)")
+        }
+    }
+
+    // After the rest of a fast flick is added (a jump within the PHL), stale moves still start from the
+    // border spot, and the catch-up again carries a hand move.
+    func testAfterTheRestOfAFlickStaleMovesAndTheCatchUpAreToldApart() {
+        XCTAssertEqual(handle(0, 5, 572, 0, 0), .pass)
+        XCTAssertEqual(handle(1, 0, 572, -105, 0), .jump(CGPoint(x: 95, y: -508)))
+        XCTAssertEqual(handle(12, 95, -508, 95, -1080), .jump(CGPoint(x: -4, y: -508)), "the rest of the flick")
+        XCTAssertEqual(handle(14, 89, -508, -6, 0), .move(CGPoint(x: -10, y: -508)), "stale: from the border spot")
+        XCTAssertEqual(handle(20, -16, -508, -105, 0), .pass, "caught up, 6 pt further")
+        XCTAssertEqual(handle(30, -22, -508, -6, 0), .pass)
+    }
+}
+
 /// Second real-mouse capture, replayed event by event (ms, location, integer delta) through the tracker.
 final class RealCaptureTrackerTests: XCTestCase {
     var tracker: PointerTracker!

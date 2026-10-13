@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let pinner = Pinner()
     private var statusItem: NSStatusItem!
     private var pendingReconcile: DispatchWorkItem?
+    private var resumeAfterCancelledLogout: DispatchWorkItem?
+    private var termination: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -23,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspace.addObserver(self, selector: #selector(displaysChanged), name: NSWorkspace.didWakeNotification, object: nil)
         workspace.addObserver(self, selector: #selector(displaysChanged), name: NSWorkspace.screensDidWakeNotification, object: nil)
         workspace.addObserver(self, selector: #selector(displaysChanged), name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(poweringOff), name: NSWorkspace.willPowerOffNotification, object: nil)
+        restoreOnEveryQuit()
 
         pinner.start()
         openAtLoginOnFirstRun()
@@ -32,6 +36,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         pinner.restore()
+    }
+
+    /// Log out, restart or shut down: put the real arrangement back before macOS saves the displays and quits
+    /// the apps. If the logout is cancelled, DockPin is still running a minute later and pins again.
+    @objc private func poweringOff() {
+        pendingReconcile?.cancel()
+        pinner.restore()
+        pinner.isPaused = true
+        resumeAfterCancelledLogout?.cancel()
+        let resume = DispatchWorkItem { [weak self] in
+            self?.pinner.isPaused = false
+            self?.pinner.reconcile()
+        }
+        resumeAfterCancelledLogout = resume
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60, execute: resume)
+    }
+
+    /// The real arrangement must come back however DockPin is quit: macOS may not kill it suddenly, and a
+    /// SIGTERM (`pkill`, `launchctl`, an update) quits it like the menu does.
+    private func restoreOnEveryQuit() {
+        ProcessInfo.processInfo.disableSuddenTermination()
+        ProcessInfo.processInfo.disableAutomaticTermination("keeps the Dock pinned")
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler { NSApp.terminate(nil) }
+        source.resume()
+        termination = source
     }
 
     /// The point is to keep the Dock pinned after every login, so DockPin turns this on once by itself;

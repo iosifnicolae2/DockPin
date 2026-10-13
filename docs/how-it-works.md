@@ -52,7 +52,7 @@ whole jump in its delta; DockPin passes it and every move after it on untouched.
 
 Without Accessibility, DockPin watches moves afterwards and warps: no permission, but the pointer
 can touch the edge for about a millisecond before it is carried across, a dragged window follows a
-crossing one move later, and pushing at the bridge can slide the pointer along the moved display's edge.
+crossing one move later, and a pointer held pushed against the bridge can creep the wrong way.
 
 Measured on an M5 Pro:
 

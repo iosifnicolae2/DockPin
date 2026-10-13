@@ -310,8 +310,12 @@ func run(_ c: Crossing) -> Result {
             let p = cursor, real = toReal(p)
             let w = c.drags && i > 3 ? windowReaching(p, grab) : windowFrame()
             defer { i += 1; last = real }
-            // A window pushed against a display's top edge opens Mission Control: let go before that.
-            if c.drags, p.y < pinnedDisplay(p).frame.minY + 4 { r.hitTop = true; break legs }
+            // A window pushed against a display's free top edge opens Mission Control: let go before that.
+            let top = pinnedDisplay(p).frame.minY
+            if c.drags, leg.step.dy < 0, p.y < top + 4, !plan.pinned.contains(where: { $0.frame.contains(CGPoint(x: p.x, y: top - 1)) }) {
+                r.hitTop = true
+                break legs
+            }
             traceFile?.write("\(c.name.replacingOccurrences(of: " ", with: "_")) \(i) \(p.x) \(p.y) \(expected.x) \(expected.y) \(w.minX) \(w.minY)\n".data(using: .utf8)!)
             // macOS starts a title-bar drag only once the pointer has moved a little: measure from there.
             if i == 3 { grab = CGPoint(x: p.x - w.minX, y: p.y - w.minY) }

@@ -289,6 +289,19 @@ final class CatchUpTests: XCTestCase {
         }
     }
 
+    // Pushing down from the LG's bottom at the bridge (which isn't a border in reality) for two seconds: macOS
+    // adds each move to the held spot and lands just past it on the Odyssey, every time.
+    func testAPointerHeldAtTheBridgeNeverGetsThrough() {
+        XCTAssertEqual(handle(0, 48, -7, 0, 6), .pass)
+        XCTAssertEqual(handle(10, 48, -1, 0, 6), .pass)
+        XCTAssertEqual(handle(20, 48, 5, 0, 6), .jump(CGPoint(x: 48, y: -1)), "stopped at the LG's bottom row")
+        for ms in stride(from: 30.0, through: 2000, by: 15) {
+            let a = handle(ms, 48, 5, 0, ms == 30 ? 6 : 0)
+            XCTAssertTrue(a == .move(CGPoint(x: 48, y: -1)) || a == .jump(CGPoint(x: 48, y: -1)), "still held at \(ms) ms: \(a)")
+        }
+        XCTAssertEqual(handle(2010, 48, -7, 0, -12), .pass, "and free to move back")
+    }
+
     // After the rest of a fast flick is added (a jump within the PHL), stale moves still start from the
     // border spot, and the catch-up again carries a hand move.
     func testAfterTheRestOfAFlickStaleMovesAndTheCatchUpAreToldApart() {

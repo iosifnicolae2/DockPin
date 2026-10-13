@@ -82,7 +82,13 @@ public struct PointerTracker {
         if isCatchUp || time > p.deadline {
             // The catch-up landed elsewhere, or never came: put the pointer back where it belongs, so macOS
             // catches up once more.
-            guard p.retries < 3 else { pending = nil; previous = location; return .pass }
+            guard p.retries < 3 else {
+                // Still no catch-up: take this as an ordinary move from where the pointer is. (Passing it on would
+                // let a pointer held at the bridge through, after a second of pushing.)
+                pending = nil
+                previous = p.spot
+                return handle(location: location, delta: delta, time: time)
+            }
             p.retries += 1
             p.deadline = time + Self.catchUpWindow
             pending = p

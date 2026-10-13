@@ -10,13 +10,16 @@ swift test                           # layout, pointer rules, edge audit, replay
 scripts/build-app.sh --install       # build/DockPin.app into ~/Applications, and start it (signed with your Developer ID if
                                      # the keychain has one, so Accessibility stays granted; ad-hoc builds lose it each rebuild)
 swift scripts/pointer-test.swift     # drives the real pointer: every crossing, and the Dock stays put
-swift scripts/drag-test.swift DIR    # drags a Finder window across the moved border and back
+swift scripts/drag-test.swift        # drags a window by its title bar across every border like a real mouse: pointer and
+                                     # window per step (--speed slow|fast, --driver cg, --baseline FILE: see its header)
 swift scripts/stress-test.swift 15   # sustained fast crossings: pointer delay and DockPin CPU per second
 ```
 
 To capture real moves for a bug report: `defaults write io.bringes.DockPin traceMoves -bool YES`,
 reproduce, `defaults delete io.bringes.DockPin traceMoves`, then
 `python3 scripts/analyze-moves.py ~/Library/Logs/DockPin/moves.log` flags bad crossings.
+To test the fallback without removing Accessibility: `defaults write io.bringes.DockPin monitorMode -bool YES`
+and restart DockPin (`defaults delete` it afterwards).
 Logs: `/usr/bin/log show --last 1h --predicate 'subsystem == "io.bringes.DockPin"'`.
 The app icon is built by `scripts/make-icon.sh` (an Icon Composer icon, `Resources/AppIcon.icon`), and the README picture by `scripts/make-readme-image.sh`
 (a macOS desktop rendered from `scripts/readme-image/page.html`; no screenshot, nothing personal).

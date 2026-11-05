@@ -1,9 +1,13 @@
 // Drags a window by the middle of its title bar across every border of the real arrangement (and at the
 // borders that only exist in the pinned one), with DockPin running, and measures, step by step, where the
 // pointer is against where the real arrangement leads, and how far the window is from the pointer.
-// Usage: swift scripts/drag-test.swift [--driver hid|cg] [--speed slow|normal|fast] [--only <name part>] [--baseline FILE]
+// Usage: swift scripts/drag-test.swift [--driver hid|cg] [--speed slow|normal|fast] [--hz N] [--only <name part>] [--baseline FILE]
 //   --driver hid (default) moves like a real mouse: relative HID events, positioned by macOS itself.
 //            cg posts absolute CoreGraphics events, as other apps do.
+//   --hz N   sends the moves at a mouse's rate (125, 1000) without waiting for the pointer or the window between
+//            them, as a hand does: right after a jump, macOS gets several moves before it has caught up. The window
+//            is drawn once a frame, so a crossing passes when neither the pointer nor the window is off (more than
+//            three moves) for longer than a frame (20 ms), and neither goes back against the hand (a snap-back).
 //   --baseline FILE, run once with DockPin quit, then with it running: a crossing no worse than macOS alone passes.
 //   DRAG_TRACE=<file> writes every step (crossing, step, pointer, expected, window) for drawing it later.
 // The calling terminal needs Accessibility. Each line: PASS/FAIL, crossing, then the worst errors in points.
@@ -41,6 +45,7 @@ func option(_ name: String) -> String? { arguments.firstIndex(of: name).flatMap 
 let useHID = option("--driver") != "cg"
 let stepLength: CGFloat = ["slow": 2, "fast": 24][option("--speed") ?? ""] ?? 6
 let only = option("--only")
+let rate = option("--hz").flatMap(Double.init)
 
 guard let plan = activePlan() else { print("FAIL no active DockPin plan for these displays"); exit(1) }
 let realFrames = Dictionary(uniqueKeysWithValues: plan.real.map { ($0.uuid, $0.frame) })
@@ -244,17 +249,17 @@ func crossings() -> [Crossing] {
     return list.filter { c in only.map { c.name.localizedCaseInsensitiveContains($0) } ?? true }
 }
 
-struct Result { var pointer: CGFloat = 0; var window: CGFloat = 0; var stalls = 0; var backward = 0; var endPointer: CGFloat = 0; var endWindow: CGFloat = 0; var hitTop = false }
+struct Result { var pointer: CGFloat = 0; var window: CGFloat = 0; var stalls = 0; var backward = 0; var endPointer: CGFloat = 0; var endWindow: CGFloat = 0; var hitTop = false; var started = true; var lateMs: Double = 0 }
 
 let traceFile = ProcessInfo.processInfo.environment["DRAG_TRACE"].flatMap { path -> FileHandle? in
     FileManager.default.createFile(atPath: path, contents: "crossing step pointer_x pointer_y expected_x expected_y window_x window_y\n".data(using: .utf8))
     return FileHandle(forWritingAtPath: path)
 }
 
-/// Waits for the event to be handled: the pointer moves, or 25 ms pass (it was held).
+/// Waits for the event to be handled: the pointer moves, or 100 ms pass (it was held; a busy Mac can take 30 ms).
 func settle(after before: CGPoint) {
     let start = Date()
-    while cursor == before && Date().timeIntervalSince(start) < 0.025 { usleep(500) }
+    while cursor == before && Date().timeIntervalSince(start) < 0.1 { usleep(500) }
 }
 
 /// The window once it is at `grab` from the pointer `p`, or as it is after 30 ms (two frames): later than that,
@@ -285,9 +290,10 @@ func run(_ c: Crossing) -> Result {
     var r = Result()
     let startPinned = toPinned(c.start)
     var grip = startPinned
+    var placed = CGRect.null
     if c.drags {
         placeWindow(titleBarMiddle: startPinned)
-        let placed = windowFrame()
+        placed = windowFrame()
         grip = CGPoint(x: placed.midX, y: placed.minY + 14)
         if hypot(grip.x - startPinned.x, grip.y - startPinned.y) > 3 { print("  (the window went to \(placed.origin), not where it was put)") }
     }
@@ -300,16 +306,30 @@ func run(_ c: Crossing) -> Result {
     var last = toReal(cursor)
     let reals = plan.real.map(\.frame)
     var i = 0
+    var windowMoved = false
+    // At a mouse's rate, the last few expected spots and pointer positions: the pointer and window may trail by a move or two.
+    var recentExpected: [CGPoint] = [], recentPointer: [CGPoint] = []
+    var lastWindow = CGRect.null
+    var pointerOffSince: Date?, windowOffSince: Date?
+    var due = Date()
     legs: for leg in c.legs {
         for _ in 0..<leg.count {
             let before = cursor
             c.drags ? drag(leg.step) : move(leg.step)
             (expectedFrame, expected) = land(expected, leg.step, on: expectedFrame, among: reals)
-            settle(after: before)
-            if i == 3 { usleep(60_000) }  // the drag has started: let the window settle before taking the grip
+            if let rate {
+                due = max(due.addingTimeInterval(1 / rate), Date().addingTimeInterval(-1 / rate))
+                while Date() < due { usleep(100) }
+            } else {
+                settle(after: before)
+            }
+            if i == 3 { usleep(60_000); due = Date() }  // the drag has started: let the window settle before taking the grip
             let p = cursor, real = toReal(p)
-            let w = c.drags && i > 3 ? windowReaching(p, grab) : windowFrame()
-            defer { i += 1; last = real }
+            let w = c.drags && i > 3 && rate == nil ? windowReaching(p, grab) : windowFrame()
+            if c.drags, !placed.isNull, w.origin != placed.origin { windowMoved = true }
+            recentExpected = Array((recentExpected + [expected]).suffix(3))
+            recentPointer = Array((recentPointer + [p]).suffix(3))
+            defer { i += 1; last = real; lastWindow = w }
             // A window pushed against a display's free top edge opens Mission Control: let go before that.
             let top = pinnedDisplay(p).frame.minY
             if c.drags, leg.step.dy < 0, p.y < top + 4, !plan.pinned.contains(where: { $0.frame.contains(CGPoint(x: p.x, y: top - 1)) }) {
@@ -320,6 +340,28 @@ func run(_ c: Crossing) -> Result {
             // macOS starts a title-bar drag only once the pointer has moved a little: measure from there.
             if i == 3 { grab = CGPoint(x: p.x - w.minX, y: p.y - w.minY) }
             guard i > 3 else { continue }
+            if rate != nil {
+                let pointerOff = recentExpected.map { hypot(real.x - $0.x, real.y - $0.y) }.min()!
+                let windowOff = c.drags ? recentPointer.map { hypot($0.x - w.minX - grab.x, $0.y - w.minY - grab.y) }.min()! : 0
+                r.pointer = max(r.pointer, pointerOff)
+                r.window = max(r.window, windowOff)
+                // How long each stays off by more than a few moves: up to a frame, the eye can't see it.
+                let tolerance = 3 * hypot(leg.step.dx, leg.step.dy) + 3, now = Date()
+                func late(_ off: CGFloat, _ since: inout Date?) {
+                    if off <= tolerance { since = nil; return }
+                    if since == nil { since = now }
+                    r.lateMs = max(r.lateMs, now.timeIntervalSince(since!) * 1000)
+                }
+                late(pointerOff, &pointerOffSince)
+                late(windowOff, &windowOffSince)
+                // A snap-back: the window going back against the hand (more than rounding).
+                let length = hypot(leg.step.dx, leg.step.dy)
+                func along(_ a: CGPoint, _ b: CGPoint) -> CGFloat { ((b.x - a.x) * leg.step.dx + (b.y - a.y) * leg.step.dy) / length }
+                func gripReal(_ f: CGRect) -> CGPoint { toReal(CGPoint(x: f.minX + grab.x, y: f.minY + grab.y)) }
+                if c.drags, !lastWindow.isNull, along(gripReal(lastWindow), gripReal(w)) < -2 { r.backward += 1 }
+                if along(last, real) < -2 { r.backward += 1 }
+                continue
+            }
             r.pointer = max(r.pointer, hypot(real.x - expected.x, real.y - expected.y))
             if c.drags { r.window = max(r.window, hypot(p.x - w.minX - grab.x, p.y - w.minY - grab.y)) }
             if (real.x - last.x) * leg.step.dx + (real.y - last.y) * leg.step.dy < 0 { r.backward += 1 }
@@ -327,6 +369,7 @@ func run(_ c: Crossing) -> Result {
         }
     }
     if c.drags { release() }
+    r.started = !c.drags || windowMoved
     usleep(300_000)
     let p = cursor, w = windowFrame(), real = toReal(p)
     r.endPointer = hypot(real.x - expected.x, real.y - expected.y)
@@ -336,18 +379,23 @@ func run(_ c: Crossing) -> Result {
 
 let saved = cursor
 let alone = plan.pinned.map(\.frame) == plan.real.map(\.frame)
-print("\(alone ? "macOS alone (DockPin isn't running)" : "DockPin"), Dock: \(plan.edge), driver: \(useHID ? "hid (like a real mouse)" : "cg (absolute events)"), \(stepLength) pt per step")
+print("\(alone ? "macOS alone (DockPin isn't running)" : "DockPin"), Dock: \(plan.edge), driver: \(useHID ? "hid (like a real mouse)" : "cg (absolute events)"), \(stepLength) pt per step\(rate.map { String(format: ", %.0f moves a second", $0) } ?? "")")
 var failures = 0
 var baselineLines: [String] = []
 for c in crossings() {
-    let r = run(c)
+    var r = run(c)
+    if !r.started { r = run(c) }  // the press didn't take the window (it happens now and then, with or without DockPin)
     let limits: [CGFloat] = [3, 3, 0, 0, 2, 2]
     let macOS = alone ? nil : baseline[key(c)]
-    let ok = !r.hitTop && zip(numbers(r), limits).enumerated().allSatisfy { i, pair in pair.0 <= max(pair.1, (macOS?[i]).map { $0 + 1 } ?? 0) }
+    let ok = r.started && !r.hitTop && (rate != nil
+        ? r.lateMs <= 20 && r.backward == 0 && r.endPointer <= 2 && r.endWindow <= max(2, (macOS?[5]).map { $0 + 1 } ?? 0)
+        : zip(numbers(r), limits).enumerated().allSatisfy { i, pair in pair.0 <= max(pair.1, (macOS?[i]).map { $0 + 1 } ?? 0) })
     if alone { baselineLines.append(([key(c)] + numbers(r).map { String(format: "%.1f", $0) }).joined(separator: "\t")) }
     if !ok { failures += 1 }
     print(String(format: "%@ %@: pointer off its real path by %.0f (end %.0f), window off the pointer by %.0f (end %.0f), %d stalls, %d steps back%@",
-                 ok ? (macOS != nil && !zip(numbers(r), limits).allSatisfy { $0 <= $1 } ? "PASS (as macOS alone)" : "PASS") : "FAIL", c.name, r.pointer, r.endPointer, r.window, r.endWindow, r.stalls, r.backward, r.hitTop ? ", reached a top edge (stopped)" : ""))
+                 ok ? (rate == nil && macOS != nil && !zip(numbers(r), limits).allSatisfy { $0 <= $1 } ? "PASS (as macOS alone)" : "PASS") : "FAIL", c.name, r.pointer, r.endPointer, r.window, r.endWindow, r.stalls, r.backward,
+                 (rate != nil ? String(format: ", off for up to %.0f ms", r.lateMs) : "")
+                 + (r.hitTop ? ", reached a top edge (stopped)" : !r.started ? ", the drag never started (twice)" : "")))
 }
 if alone, let baselineFile { try! baselineLines.joined(separator: "\n").write(toFile: baselineFile, atomically: true, encoding: .utf8) }
 toHelper.fileHandleForWriting.write("quit\n".data(using: .utf8)!)

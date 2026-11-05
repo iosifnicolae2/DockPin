@@ -48,11 +48,16 @@ which macOS's shake-to-locate takes for a shake (it enlarges the pointer). The p
 of the hand's, so a window dragged by its title bar moves with the pointer in the same event and stays
 under it across a moved border (`scripts/drag-test.swift` measures 0 pt between them, before, during and
 after each crossing). Right after a crossing, macOS's next move starts from the new spot and carries the
-whole jump in its delta; DockPin passes it and every move after it on untouched.
+whole jump in its delta; DockPin passes it and every move after it on untouched. That delta is always the
+distance from macOS's previous location, DockPin's own correction included, so where the correction is short
+(a pointer held at the bridge is put back a few points) DockPin tells macOS's catch-up from a late move by the
+hand's pace, not by the delta.
 
 Without Accessibility, DockPin watches moves afterwards and warps: no permission, but the pointer
 can touch the edge for about a millisecond before it is carried across, a dragged window follows a
-crossing one move later, and a pointer held pushed against the bridge can creep the wrong way.
+crossing one move later (a millisecond or a few with a real mouse, within a frame), and a pointer held
+pushed against the bridge pokes through for a millisecond on each push and can end up off its spot. A
+passive monitor hears about a move only after macOS has made it, so it can't do better.
 
 Measured on an M5 Pro:
 

@@ -6,11 +6,14 @@ import IOKit
 enum Displays {
     /// The real displays. Virtual ones are left out and never moved: one coming or going must not change
     /// which display is the center (and so main), nor be taken for a change to the user's arrangement.
+    /// `defaults write io.bringes.DockPin includeVirtualDisplays -bool YES` counts them too, for tests on a desk
+    /// made of virtual displays (scripts/virtual-desk.m).
     static func current() -> [Display] {
         let hardware = hardwareScreens()
+        let all = UserDefaults.standard.bool(forKey: "includeVirtualDisplays")
         return NSScreen.screens.compactMap { screen in
             let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID
-            guard HardwareScreen.isReal(builtIn: CGDisplayIsBuiltin(id) != 0, vendor: CGDisplayVendorNumber(id),
+            guard all || HardwareScreen.isReal(builtIn: CGDisplayIsBuiltin(id) != 0, vendor: CGDisplayVendorNumber(id),
                                         serial: CGDisplaySerialNumber(id), among: hardware) else { return nil }
             guard let uuid = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() else { return nil }
             return Display(uuid: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, frame: CGDisplayBounds(id))

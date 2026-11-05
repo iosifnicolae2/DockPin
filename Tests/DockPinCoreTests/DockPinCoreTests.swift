@@ -302,6 +302,23 @@ final class CatchUpTests: XCTestCase {
         XCTAssertEqual(handle(2010, 48, -7, 0, -12), .pass, "and free to move back")
     }
 
+    // The same push at a mouse's rate (drag-test.swift --hz 125, 24 pt a move, on the virtual desk): macOS takes
+    // each spot DockPin puts the pointer at and adds the hand's 24 pt (23), but its delta is the distance from its own
+    // previous location: 0 while it lands at 23 every time, -24 right after it once missed the spot and landed at 47.
+    // Read as stale moves, those deltas sent the pointer up the LG 24 pt at a time, 740 pt in half a second.
+    func testAPointerHeldAtTheBridgeAtAMouseRateStaysHeld() {
+        XCTAssertEqual(handle(0, 48, -30, 0, 24), .pass)
+        XCTAssertEqual(handle(8, 48, -6, 0, 24), .pass)
+        XCTAssertEqual(handle(16, 48, 18, 0, 24), .jump(CGPoint(x: 48, y: -1)), "stopped at the LG's bottom row")
+        let held = [(23, 5), (23, 0), (47, 24), (23, -24), (23, 0), (47, 24), (23, -24), (47, 24), (23, -24), (23, 0)]
+        for (i, (y, dy)) in held.enumerated() {
+            let a = handle(Double(24 + 8 * i), 48, CGFloat(y), 0, CGFloat(dy))
+            XCTAssertTrue(a == .move(CGPoint(x: 48, y: -1)) || a == .jump(CGPoint(x: 48, y: -1)), "still held at y \(y), delta \(dy): \(a)")
+        }
+        XCTAssertEqual(handle(200, 48, -25, 0, -48), .pass, "the hand goes back up: 24 pt from the held spot")
+        XCTAssertEqual(handle(208, 48, -49, 0, -24), .pass)
+    }
+
     // After the rest of a fast flick is added (a jump within the PHL), stale moves still start from the
     // border spot, and the catch-up again carries a hand move.
     func testAfterTheRestOfAFlickStaleMovesAndTheCatchUpAreToldApart() {

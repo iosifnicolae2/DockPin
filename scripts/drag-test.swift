@@ -256,10 +256,10 @@ let traceFile = ProcessInfo.processInfo.environment["DRAG_TRACE"].flatMap { path
     return FileHandle(forWritingAtPath: path)
 }
 
-/// Waits for the event to be handled: the pointer moves, or 25 ms pass (it was held).
+/// Waits for the event to be handled: the pointer moves, or 100 ms pass (it was held; a busy Mac can take 30 ms).
 func settle(after before: CGPoint) {
     let start = Date()
-    while cursor == before && Date().timeIntervalSince(start) < 0.025 { usleep(500) }
+    while cursor == before && Date().timeIntervalSince(start) < 0.1 { usleep(500) }
 }
 
 /// The window once it is at `grab` from the pointer `p`, or as it is after 30 ms (two frames): later than that,
